@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+
+name = "codeUtils-elfin"
+version = "0.0.2"
+description = "常用功能模块快速使用库."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "loguru>=0.7.2",
+]
+
+#[project.scripts]
+# 命令 = "包名.模块:函数"
+#code-tool = ""
+
+#[project.urls]
+#"Homepage" = "https://github.com/firstelfin/codeTools"
+#"Bug Tracker" = ""
