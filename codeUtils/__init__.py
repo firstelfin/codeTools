@@ -9,11 +9,14 @@
 '''
 
 from . import decorator
-from .tools import is_async_function
+from .tools import is_async_function, font_config
 from .log_tools import setup_logger
+from .matrix import *
 
 __all__ = [
     "decorator",
     "is_async_function",
-    "setup_logger"
+    "setup_logger",
+    "font_config",
+    "matrix"
 ]

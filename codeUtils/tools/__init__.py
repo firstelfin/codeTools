@@ -8,9 +8,10 @@
 @Desc    :   None
 '''
 
+from . import font_config
 
 def is_async_function(func):
     return func.__code__.co_flags & 0x80  # 检查CO_ASYNC标志
 
 
-__all__ = ["is_async_function"]
+__all__ = ["is_async_function", "font_config"]
