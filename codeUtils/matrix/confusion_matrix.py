@@ -115,7 +115,6 @@ class ConfusionMatrix:
         self.imgw = self.xlabel_size() + len(self.category)
         self.imgh = int(0.8 * self.imgw)
         self.figure, self.ax = plt.subplots(figsize=(self.imgw, self.imgh), dpi=self.dpi)
-        self.figure.dpi = self.dpi
         
         sns.heatmap(
             self.matrix, annot=True, fmt="d", cmap=self.cmap, 
