@@ -119,7 +119,7 @@ class ConfusionMatrix:
         sns.heatmap(
             self.matrix, annot=True, fmt="d", cmap=self.cmap, 
             xticklabels=self.category, yticklabels=self.category,
-            ax=self.ax, annot_kws={"size": cell_size, "weight": "bold"}
+            ax=self.ax, linewidths=1, annot_kws={"size": cell_size, "weight": "bold"}
         )
         plt.title(self.title, fontsize=int(xticks_size*1.3))
         plt.ylabel("GT", fontsize=xticks_size)

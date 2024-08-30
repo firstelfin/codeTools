@@ -12,6 +12,7 @@ from . import decorator
 from .tools import is_async_function, font_config
 from .log_tools import setup_logger
 from .matrix import *
+from .match_factory import *
 
 __all__ = [
     "decorator",
