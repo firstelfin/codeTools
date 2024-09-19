@@ -15,6 +15,7 @@ import json
 import msgpack
 import numpy as np
 import cv2 as cv
+from loguru import logger
 from contextlib import contextmanager
 from numpy import ndarray
 from PIL import Image
@@ -67,15 +68,28 @@ class CacheFile:
 
     class_name = "CacheFile"
 
-    def __init__(self, file_path: str|PosixPath, symlink: bool=True, max_workers: int=4, usage_mode: str="or"):
+    def __init__(
+            self, file_path: str|PosixPath, symlink: bool=True, 
+            max_workers: int=4, usage_mode: str="or", 
+            gb_threshold: float=0.2, ratio_threshold:float=0.05
+        ):
+        """初始化缓存文件类
+
+        :param str | PosixPath file_path: 缓存文件路径文件夹
+        :param bool symlink: 是否创建软链接, defaults to True
+        :param int max_workers: 线程池最大线程数, defaults to 6
+        :param str usage_mode: 磁盘使用模式, defaults to "or"
+        :param float gb_threshold: 剩余空间阈值(单位GB), defaults to 0.2
+        :param float ratio_threshold: 剩余空间比例阈值, defaults to 0.05
+        """
         self.file_path = Path(file_path)
         self.symlink = symlink
         self.gb = 2**30  # 1GB
-        self.cpu_cores = max(min(int(os.cpu_count() * 0.8), max_workers), 4)
+        self.cpu_cores = max(min(int(os.cpu_count() * 0.8), max_workers), 6)
         self.usage_mode = usage_mode.lower()
         assert self.usage_mode in ["or", "and"], "Unsupported usage_mode"
-        self.free_gb_threshold = 0.2  # 200MB
-        self.free_ratio_threshold = 0.05  # 5%
+        self.free_gb_threshold = gb_threshold  # 200MB
+        self.free_ratio_threshold = ratio_threshold  # 5%
         self.file_path.mkdir(parents=True, exist_ok=True)
     
     def check_disk_usage(self):
@@ -99,15 +113,20 @@ class CacheFile:
         """上下文管理器，确保在删除软链接时不被读取。"""
 
         lock_links = [Path(link_path).with_suffix('.lock') for link_path in link_paths]
+        should_cleanup = [False] * len(lock_links)
         try:
             # 创建锁文件，表示正在使用链接
-            for lock_file in lock_links:
+            for i,lock_file in enumerate(lock_links):
                 lock_file.touch(exist_ok=False)
+                should_cleanup[i] = True
             yield  # 在这个上下文中执行
+        except FileExistsError:
+            logger.warning('CacheFile: The file has been locked, please try again later.')
+            raise
         finally:
             # 删除锁文件
-            for lock_file in lock_links:
-                if lock_file.exists():
+            for j, lock_file in enumerate(lock_links):
+                if lock_file.exists() and should_cleanup[j]:
                     lock_file.unlink()
 
     def cache_save(self, data: str|bytes|dict|list|ndarray, file_path: str|PosixPath, mode: str="msgpack"):
@@ -120,23 +139,27 @@ class CacheFile:
         """
         mode = mode.lower()
         lock_files = [file_path, file_path.resolve()] if file_path.is_symlink() else [file_path]
-        with self.lock(lock_files):
-            if mode == "msgpack":
-                packed_data = msgpack.packb(data)
-                with open(file_path, "wb") as f:
-                    f.write(packed_data)
-            elif mode == "json":
-                with open(file_path, "w+", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False)
-            elif mode == "webp":
-                # 当前webp格式cv在保存数据上的支持没有pillow好
-                image_data = Image.fromarray(data)
-                image_data.save(file_path, format=mode)
-            elif mode in ["jpeg", "png"]:
-                cv.imwrite(str(file_path), data)
-            else:
-                raise ValueError(f"Unsupported mode: {mode}")
-        
+        try:
+            with self.lock(lock_files):
+                if mode == "msgpack":
+                    packed_data = msgpack.packb(data)
+                    with open(file_path, "wb") as f:
+                        f.write(packed_data)
+                elif mode == "json":
+                    with open(file_path, "w+", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False)
+                elif mode == "webp":
+                    # 当前webp格式cv在保存数据上的支持没有pillow好
+                    image_data = Image.fromarray(data)
+                    image_data.save(file_path, format=mode)
+                elif mode in ["jpeg", "png"]:
+                    cv.imwrite(str(file_path), data)
+                else:
+                    raise ValueError(f"Unsupported mode: {mode}")
+        except FileExistsError:
+            return False
+        return True
+    
     def cache_load(self, file_path: str|PosixPath, mode: str="msgpack"):
         """加载缓存文件为Python字典(列表), msgpack数据加载比json数据加载快30%.
         加载缓存文件时, 会自动对target文件进行锁定, 防止被其他进程读取。
@@ -149,18 +172,21 @@ class CacheFile:
         file_path = Path(file_path)
         mode = mode.lower()
         lock_files = [file_path, file_path.resolve()] if file_path.is_symlink() else [file_path]
-        with self.lock(lock_files):
-            if mode == "msgpack":
-                with open(file_path, "rb") as f:
-                    packed_data = f.read()
-                    data_dict = msgpack.unpackb(packed_data)
-            elif mode == "json":
-                with open(file_path, "r+") as f:
-                    data_dict = json.load(f)
-            elif mode in ["jpeg", "webp", "png", "jpg"]:
-                data_dict = cv.imread(str(file_path))
-            else:
-                raise ValueError(f"Unsupported mode: {mode}")
+        try:
+            with self.lock(lock_files):
+                if mode == "msgpack":
+                    with open(file_path, "rb") as f:
+                        packed_data = f.read()
+                        data_dict = msgpack.unpackb(packed_data)
+                elif mode == "json":
+                    with open(file_path, "r+") as f:
+                        data_dict = json.load(f)
+                elif mode in ["jpeg", "webp", "png", "jpg"]:
+                    data_dict = cv.imread(str(file_path))
+                else:
+                    raise ValueError(f"Unsupported mode: {mode}")
+        except FileExistsError:
+            return [None] * (int(file_path.is_symlink()) + 1)
         return data_dict
 
     def inject_obj_parser(self, inject_obj: dict, suffix="cache", soft_link=True):
@@ -229,12 +255,13 @@ class CacheFile:
         
         lock_files = [link_path, target] if is_link else [link_path]
         try:
-            if link_path.exists():
-                with self.lock(lock_files):
-                    link_path.unlink()
-                    if is_link:
-                        target.unlink()
+            with self.lock(lock_files):
+                link_path.unlink()
+                if is_link:
+                    target.unlink()
             return True
+        except FileExistsError:
+            return False
         except:
             if link_path.exists():
                 status = False
@@ -278,8 +305,9 @@ class CacheFile:
         with ThreadPoolExecutor(max_workers=self.cpu_cores) as executor:
             for data_dict in data_list:
                 req = executor.submit(self.cache_add, data_dict["data"], data_dict["inject_obj"], data_dict["mode"])
-                res.append(req.result())
-        return res
+                res.append(req)
+        result = [req.result() for req in res]
+        return result
     
     def batch_cache_delete(self, data_list: list[str|PosixPath]):
         """批量删除缓存文件软链接, link_path如果是软链接路径, target文件也会被删除.
@@ -292,8 +320,9 @@ class CacheFile:
         with ThreadPoolExecutor(max_workers=self.cpu_cores) as executor:
             for link_path in data_list:
                 req = executor.submit(self.cache_delete, link_path)
-                res.append(req.result())
-        return res
+                res.append(req)
+        result = [req.result() for req in res]
+        return result
 
     def batch_cache_load(self, data_list: list[dict|str|PosixPath]):
 
@@ -310,5 +339,6 @@ class CacheFile:
                     mode = data_dict["mode"].lower()
 
                 req = executor.submit(self.cache_load, cache_file_path, mode)
-                res.append(req.result())
-        return res
+                res.append(req)
+        result = [req.result() for req in res]
+        return result
