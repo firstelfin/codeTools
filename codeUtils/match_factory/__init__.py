@@ -8,5 +8,5 @@ from .bbox_match import *
 
 __all__ = [
     # 'read_img_and_json', 'ComponentStructuralSimilarity', 'ShapeBasedMatch',
-    'box_valid', 'inter_box', 'xywh2xyxy', 'iop_box', 'iou_box'
+    'box_valid', 'inter_box', 'xywh2xyxy', 'ios_box', 'iou_box'
 ]

@@ -4,7 +4,7 @@
 @File    :   bbox_match.py
 @Time    :   2024/09/10 21:05:25
 @Author  :   firstElfin 
-@Version :   0.0.4
+@Version :   0.0.6
 @Desc    :   bbox相关的匹配算子
 '''
 
@@ -43,8 +43,8 @@ def xywh2xyxy(bbox: list) -> list:
     return [a1, b1, a2, b2]
 
 
-def iop_box(box1: list, box2: list, mode: str="xywh"):
-    """交预比
+def ios_box(box1: list, box2: list, mode: str="xywh"):
+    """交自比
 
     :param list box1: 预测bbox
     :param list box2: 匹配的查询bbox
@@ -67,8 +67,8 @@ def iop_box(box1: list, box2: list, mode: str="xywh"):
     _, inter_area = inter_box(bbox1, bbox2)
 
     bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
-    iop = inter_area / bbox1_area
-    return iop
+    ios = inter_area / bbox1_area
+    return ios
 
 
 def iou_box(box1: list, box2: list) -> float:
@@ -94,3 +94,31 @@ def iou_box(box1: list, box2: list) -> float:
     iou = inter_area / union_area
 
     return iou
+
+
+def rel_box(box1: list, box2: list, trunc: bool=False) -> list:
+    """生成box2相对于box1的相对坐标框
+
+    :param list box1: 边框左上右下角坐标
+    :param list box2: 边框左上右下角坐标
+    :param bool trunc: 是否截断超出边界的坐标, defaults to False
+    :return list: 相对坐标框
+    """
+    
+    x1, y1, x2, y2 = box1
+    x1_r, y1_r, x2_r, y2_r = box2
+    x1_r_n = int(x1_r - x1)
+    y1_r_n = int(y1_r - y1)
+    x2_r_n = int(x2_r - x1)
+    y2_r_n = int(y2_r - y1)
+
+    # 截断超出边界的坐标
+    if trunc:
+        x1_r_n = max(0, x1_r_n)
+        y1_r_n = max(0, y1_r_n)
+        x2_r_n = min(int(x2-x1), x2_r_n)
+        y2_r_n = min(int(y2-y1), y2_r_n)
+    coord = [x1_r_n, y1_r_n, x2_r_n, y2_r_n]
+    if not box_valid(coord):
+        raise Exception(f"bboxError: 边框的坐标不符合要求, coord={coord}.")
+    return coord

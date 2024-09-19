@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 
 name = "codeUtils-elfin"
-version = "0.0.5"
+version = "0.0.6"
 description = "常用功能模块快速使用库."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,7 +15,8 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
-    "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1"
+    "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1", "msgpack>=1.1.0",
+    "pillow>=10.4.0", "opencv-python>=4.3.0.38", "opencv-contrib-python>=4.3.0.38"
 ]
 
 #[project.scripts]
