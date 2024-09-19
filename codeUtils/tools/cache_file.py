@@ -67,11 +67,15 @@ class CacheFile:
 
     class_name = "CacheFile"
 
-    def __init__(self, file_path: str|PosixPath, symlink: bool=True, max_workers=4):
+    def __init__(self, file_path: str|PosixPath, symlink: bool=True, max_workers: int=4, usage_mode: str="or"):
         self.file_path = Path(file_path)
         self.symlink = symlink
         self.gb = 2**30  # 1GB
-        self.cpu_cores = max(min(int(os.cpu_count() * 0.8), max_workers), 4)  # 线程数
+        self.cpu_cores = max(min(int(os.cpu_count() * 0.8), max_workers), 4)
+        self.usage_mode = usage_mode.lower()
+        assert self.usage_mode in ["or", "and"], "Unsupported usage_mode"
+        self.free_gb_threshold = 0.2  # 200MB
+        self.free_ratio_threshold = 0.05  # 5%
         self.file_path.mkdir(parents=True, exist_ok=True)
     
     def check_disk_usage(self):
@@ -79,7 +83,12 @@ class CacheFile:
         total, _, free = shutil.disk_usage(self.file_path)
         free_gb = free / self.gb
         free_ratio = free / total
-        if free_ratio < 0.15 or free_gb < 0.1:
+        ratio_status = free_ratio < self.free_ratio_threshold
+        gb_status = free_gb < self.free_gb_threshold
+
+        if self.usage_mode == "and" and (ratio_status and gb_status):
+            return False
+        elif self.usage_mode == "or" and (ratio_status or gb_status):
             return False
         else:
             return True
