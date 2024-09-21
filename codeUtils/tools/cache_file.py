@@ -186,7 +186,7 @@ class CacheFile:
                 else:
                     raise ValueError(f"Unsupported mode: {mode}")
         except FileExistsError:
-            return [None] * (int(file_path.is_symlink()) + 1)
+            return None
         return data_dict
 
     def inject_obj_parser(self, inject_obj: dict, suffix="cache", soft_link=True):
