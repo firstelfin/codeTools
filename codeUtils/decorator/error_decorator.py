@@ -8,6 +8,7 @@
 @Desc    :   None
 '''
 
+import inspect
 import traceback
 from loguru import logger
 from ..tools import is_async_function
@@ -71,26 +72,29 @@ class ErrorCheck(object):
         # 定义__call__
         cls_call = cls.__call__
         async_status = is_async_function(cls_call)
+        res_item_error_msg = f"ResItemAttrError: {cls.class_name} does not have parameter {self.res_obj}; "\
+            f"Please use the format {self.res_obj}={self.res_obj}_param to pass parameters within the __call__ method."
 
         def call_hook(_self, *args, **kwargs):
+            res_item = kwargs.get(self.res_obj, None)
+            assert res_item is not None, res_item_error_msg
+
             try:
-                assert kwargs.get(self.res_obj, False), \
-                    f"ResItemAttrError: {_self.class_name} does not have parameter res_item."
                 res = cls_call(_self, *args, **kwargs)
                 return res
             except Exception as e:
-                # res_item = kwargs.get("res_item")
-                res_item = self.inject(kwargs.get(self.res_obj), e)
+                res_item = self.inject(res_item, e)
                 return res_item
         
         async def async_call_hook(_self, *args, **kwargs):
+            res_item = kwargs.get(self.res_obj, None)
+            assert res_item is not None, res_item_error_msg
+
             try:
-                assert kwargs.get(self.res_obj, False), \
-                    f"ResItemAttrError: {_self.class_name} does not have parameter res_item."
                 res = await cls_call(_self, *args, **kwargs)
                 return res
             except Exception as e:
-                res_item = self.inject(kwargs.get(self.res_obj), e)
+                res_item = self.inject(res_item, e)
                 return res_item
         
         cls.__call__ = call_hook if not async_status else async_call_hook
