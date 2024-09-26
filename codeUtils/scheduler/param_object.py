@@ -9,11 +9,7 @@
 '''
 
 from abc import ABCMeta, abstractmethod
-from ..decorator.registry import Registry
-
-
-# 定义参数类的注册表
-PARAM_REGISTRY = Registry("PARAM_CONFIG")
+from . import PARAM_REGISTRY
 
 
 class ConfigBase(metaclass=ABCMeta):

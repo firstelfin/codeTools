@@ -11,7 +11,7 @@
 import json
 from loguru import logger
 from pathlib import Path, PosixPath
-from .param_object import PARAM_REGISTRY
+from . import PARAM_REGISTRY
 from ..decorator.registry import Registry
 
 
@@ -19,15 +19,15 @@ class TaskManage:
     """
     Example:
     ```
-    >>> tasks1 = [('add', 'AddTask'), ('sub', 'SubTask')]
-    >>> task_manage1 = TaskManage(tasks)
-    >>> tasks2 = {'add: 'AddTask', 'sub': 'SubTask'}
-    >>> task_manage2 = TaskManage(tasks2)
     >>> class AreasFilter():
     ...     def __init__(self) -> None:
     ...         super().__init__()
     ...         self.areas = IntParam(10000)  # 参数会被代理检查
-    ...         self.area_thresh = 0.0001  # 参数不会被代理
+    ...         self.area_thresh = 0.0001     # 参数不会被代理
+    >>> tasks1 = [('add', 'AddTask'), ('sub', 'SubTask')]
+    >>> task_manage1 = TaskManage(tasks=tasks1, operators={"AreasFilter": AreasFilter})
+    >>> tasks2 = {'add: 'AddTask', 'sub': 'SubTask'}
+    >>> task_manage2 = TaskManage(tasks=tasks2, operators={"AreasFilter": AreasFilter})
     ```
     """
 
@@ -115,10 +115,3 @@ class TaskManage:
         """生成计算图: 串行执行所有算子"""
         for operator in self.__tasks:
             yield operator
-
-
-
-if __name__ == '__main__':
-    tasks = [('areas_filter', 'AreasFilter')]
-    task_manage = TaskManage(tasks)
-    task_manage.save_json_cfg('test.json')

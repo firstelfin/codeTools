@@ -10,3 +10,10 @@
 
 from .param_object import *
 from .task_manage import *
+from .base_operator import *
+
+from ..decorator.registry import Registry
+
+
+OPERATORS_REGISTRY = Registry("operators")
+PARAM_REGISTRY = Registry("PARAM_CONFIG")

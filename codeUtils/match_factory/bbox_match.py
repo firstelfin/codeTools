@@ -35,7 +35,7 @@ def inter_box(box1: list, box2: list) -> tuple[list, float]:
 
 
 def xywh2xyxy(bbox: list) -> list:
-    """xywh矩形框标注转换为xyxy模式"""
+    """xywh(cx, cy, w, h)矩形框标注转换为xyxy模式"""
     a, b, w, h = bbox
     w_shift = w // 2
     h_shift = h // 2
@@ -43,12 +43,13 @@ def xywh2xyxy(bbox: list) -> list:
     return [a1, b1, a2, b2]
 
 
-def ios_box(box1: list, box2: list, mode: str="xywh"):
+def ios_box(box1: list, box2: list, mode: str="xywh", double: bool=False):
     """交自比
 
     :param list box1: 预测bbox
     :param list box2: 匹配的查询bbox
     :param str mode: bbox的组成模式, 'xywh'表示框中心和宽高, defaults to 'xywh', options: ['xywh', 'xyxy']
+    :param bool double: 是否双边计算, defaults to False
     """
     if mode not in ["xywh", "xyxy"]:
         raise Exception("modeError: IOP_box的mode参数不在可选范围内.")
@@ -68,6 +69,10 @@ def ios_box(box1: list, box2: list, mode: str="xywh"):
 
     bbox1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
     ios = inter_area / bbox1_area
+    if double:
+        bbox2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+        ios_2 = inter_area / bbox2_area
+        return ios, ios_2
     return ios
 
 
