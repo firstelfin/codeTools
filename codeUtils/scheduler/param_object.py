@@ -9,7 +9,10 @@
 '''
 
 from abc import ABCMeta, abstractmethod
-from . import PARAM_REGISTRY
+from ..decorator.registry import Registry
+
+
+PARAM_REGISTRY = Registry("PARAM_CONFIG")
 
 
 class ConfigBase(metaclass=ABCMeta):

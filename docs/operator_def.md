@@ -58,3 +58,58 @@ def inject_keys(self) -> list:
 3. 尽可能给出Example示例代码，方便其他开发者快速理解和使用;
 4. 方法、函数内部代码尽量精简，提高复用性和可读性。
 
+## 3. 算子与任务调度器实用案例
+
+````python
+from codeUtils.scheduler import PARAM_REGISTRY, ConfigBase
+from codeUtils.scheduler import IntParam, StrParam
+from codeUtils.scheduler import OPERATORS_REGISTRY, BaseOperator
+from codeUtils.scheduler import TaskManager
+
+
+@PARAM_REGISTRY
+class MyParam(ConfigBase):
+
+    def __init__(self, name, age):
+        self.name = StrParam(name)
+        self.age = IntParam(age)
+
+    def check(self):
+        self.name.check()
+        self.age.check()
+    
+    def get(self):
+        return self.name.get(), self.age.get()
+    
+    def set(self, values):
+        self.name.set(values[0])
+        self.age.set(values[1])
+
+
+@OPERATORS_REGISTRY
+class MyOperator(BaseOperator):
+
+    def __init__(self):
+        super().__init__()
+        self.threshold = MyParam("elfin", 18)
+
+    def __call__(self, params: dict, res_item: dict = {}) -> dict:
+        res_item = super().__call__(params, res_item)
+        print(f"MyOperator: {self.threshold.get()}")
+        return res_item
+    
+    def used_keys(self) -> list:
+        return []
+    
+    def inject_keys(self) -> list:
+        return []
+
+
+if __name__ == "__main__":
+    tasks = {"my_op": "MyOperator"}
+    task_manage = TaskManager(tasks=tasks, operators=OPERATORS_REGISTRY)
+    task_manage.save_json_cfg("task_op.json")
+    task_manage.load_json_cfg("task_op.json")
+    for task_obj in task_manage.generate_graph():
+        task_obj({})
+```

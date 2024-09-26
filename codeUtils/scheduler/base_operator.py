@@ -10,11 +10,14 @@
 
 from abc import ABCMeta, abstractmethod
 from ..match_factory.bbox_match import ios_box
+from ..decorator.registry import Registry
 from .param_object import FloatParam
-from . import OPERATORS
 
 
-@OPERATORS
+OPERATORS_REGISTRY = Registry("operators")
+
+
+@OPERATORS_REGISTRY
 class BaseOperator(metaclass=ABCMeta):
 
     @abstractmethod
@@ -44,7 +47,7 @@ class BaseOperator(metaclass=ABCMeta):
     def deinit(self): ...  # 析构方法
 
 
-@OPERATORS
+@OPERATORS_REGISTRY
 class IOSOperator(BaseOperator):
     """计算两个bbox的ios值, 并将结果注入到res_item中, 支持double模式返回两个框各自的交自比,
     支持bbox的坐标格式为: XYXY、XYWH(CXCYWH)

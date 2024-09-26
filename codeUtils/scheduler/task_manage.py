@@ -15,7 +15,7 @@ from . import PARAM_REGISTRY
 from ..decorator.registry import Registry
 
 
-class TaskManage:
+class TaskManager:
     """
     Example:
     ```
@@ -25,9 +25,9 @@ class TaskManage:
     ...         self.areas = IntParam(10000)  # 参数会被代理检查
     ...         self.area_thresh = 0.0001     # 参数不会被代理
     >>> tasks1 = [('add', 'AddTask'), ('sub', 'SubTask')]
-    >>> task_manage1 = TaskManage(tasks=tasks1, operators={"AreasFilter": AreasFilter})
+    >>> task_manage1 = TaskManager(tasks=tasks1, operators={"AreasFilter": AreasFilter})
     >>> tasks2 = {'add: 'AddTask', 'sub': 'SubTask'}
-    >>> task_manage2 = TaskManage(tasks=tasks2, operators={"AreasFilter": AreasFilter})
+    >>> task_manage2 = TaskManager(tasks=tasks2, operators={"AreasFilter": AreasFilter})
     ```
     """
 
