@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 
-name = "codeUtilsElfin"
+name = "elfinCodeUtils"
 version = "0.1.5"
 description = "常用功能模块快速使用库."
 readme = "README.md"

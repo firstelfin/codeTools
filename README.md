@@ -5,7 +5,7 @@
 ## Install
 
 ```shell
-pip install --index-url https://pypi.org/simple codeUtilsElfin
+pip install --index-url https://pypi.org/simple elfinCodeUtils
 ```
 
 ## update code
