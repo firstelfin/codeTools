@@ -5,7 +5,7 @@
 ## Install
 
 ```shell
-pip install --index-url https://pypi.org/simple codeUtils-elfin
+pip install --index-url https://pypi.org/simple codeUtilsElfin
 ```
 
 ## update code
@@ -17,4 +17,5 @@ twine upload dist/*
 ```
 
 ## task_manage
-- [x] 完成task_manage模块的编写: 参考[文档](./docs/task_manage.md)
+
+- [X] 完成task_manage模块的编写: 参考[文档](./docs/task_manage.md)

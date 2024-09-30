@@ -60,7 +60,7 @@ def inject_keys(self) -> list:
 
 ## 3. 算子与任务调度器实用案例
 
-````python
+```python
 from codeUtils.scheduler import PARAM_REGISTRY, ConfigBase
 from codeUtils.scheduler import IntParam, StrParam
 from codeUtils.scheduler import OPERATORS_REGISTRY, BaseOperator
