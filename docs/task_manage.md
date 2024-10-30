@@ -23,31 +23,31 @@ graph TD;
     result_manage -->|归档| O(output);
 ```
 
-## 2. task_manage模块
+## 2. taskManage模块
 
-task_manage模块负责任务的调度和管理，包括任务的参数配置、参数加载、算子实例化、算子调度等。
+taskManage模块负责任务的调度和管理，包括任务的参数配置、参数加载、算子实例化、算子调度等。
 
 任务的管理比较复杂，未来规避动态导入的烦恼，TaskManager模块支持了字典和注册器两种方式进行算子注入。内部算子对象获取使用get接口获取，TaskManager模块算子入参可以参考字典的使用习惯，注册器做了相应的适配。TaskManager任务入参可以使用`dict`和`list[tuple]`两种方式进行注入。
 
 ### 2.1 列表注入任务案例
 
 ```python
->>> from codeUtils.scheduler.task_manage import TaskManager
->>> from codeUtils.scheduler.param_object import IntParam
+>>> from codeUtils.scheduler.taskManage import TaskManager
+>>> from codeUtils.scheduler.paramObject import IntParam
 >>> class AreasFilter():
 ...     def __init__(self) -> None:
 ...         super().__init__()
 ...         self.areas = IntParam(10000)  # 参数会被代理检查
 ...         self.area_thresh = 0.0001  # 参数不会被代理
 >>> tasks1 = [("filter1", "AreasFilter"), ("filter2", "AreasFilter")]
->>> task_manage1 = TaskManager(tasks=tasks, operators={"AreasFilter": AreasFilter})
+>>> taskManage1 = TaskManager(tasks=tasks, operators={"AreasFilter": AreasFilter})
 ```
 
 ### 2.2 字典注入任务案例
 
 ```python
 >>> tasks2 = {"filter1": "AreasFilter", "filter2": "AreasFilter"}
->>> task_manage2 = TaskManager(tasks=tasks2, operators={"AreasFilter": AreasFilter})
+>>> taskManage2 = TaskManager(tasks=tasks2, operators={"AreasFilter": AreasFilter})
 ```
 
 ### 2.3 注册器注入算子案例
@@ -62,19 +62,19 @@ task_manage模块负责任务的调度和管理，包括任务的参数配置、
 ...         self.areas = IntParam(10000)  # 参数会被代理检查
 ...         self.area_thresh = 0.0001  # 参数不会被代理
 >>> tasks3 = {"filter1": "AreasFilter", "filter2": "AreasFilter"}
->>> task_manage3 = TaskManager(tasks=tasks3, operators=Register)
+>>> taskManage3 = TaskManager(tasks=tasks3, operators=Register)
 ```
 
 ### 2.4 算子参数保存
 
 ```python
->>> task_manage1.save_json_cfg("config.json")
+>>> taskManage1.save_json_cfg("config.json")
 ```
 
 ### 2.5 算子参数加载
 
 ```python
->>> task_manage = TaskManager(operators={"AreasFilter": AreasFilter})
->>> task_manage.load_json_cfg("config.json", task_valid=False)
+>>> taskManage = TaskManager(operators={"AreasFilter": AreasFilter})
+>>> taskManage.load_json_cfg("config.json", task_valid=False)
 ```
 

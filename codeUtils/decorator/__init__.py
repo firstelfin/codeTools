@@ -8,7 +8,7 @@
 @Desc    :   None
 '''
 
-from .exec_time import log_time, inject_time, inject_attr
-from .error_decorator import ErrorCheck
+from .execTime import log_time, inject_time, inject_attr
+from .errorDecorator import ErrorCheck
 
 __all__ = ["log_time", "inject_time", "inject_attr", "ErrorCheck"]

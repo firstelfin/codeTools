@@ -16,6 +16,6 @@ python -m build
 twine upload dist/*
 ```
 
-## task_manage
+## taskManage
 
-- [X] 完成task_manage模块的编写: 参考[文档](./docs/task_manage.md)
+- [X] 完成taskManage模块的编写: 参考[文档](./docs/taskManage.md)

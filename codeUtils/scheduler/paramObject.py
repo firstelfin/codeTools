@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   param_object.py
+@File    :   paramObject.py
 @Time    :   2024/09/25 11:31:34
 @Author  :   firstElfin 
 @Version :   0.1.3

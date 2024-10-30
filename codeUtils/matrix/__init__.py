@@ -8,6 +8,6 @@
 @Desc    :   None
 '''
 
-from .confusion_matrix import ConfusionMatrix
+from .confusionMatrix import ConfusionMatrix
 
 __all__ = ['ConfusionMatrix']

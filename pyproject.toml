@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 [project]
 
 name = "elfinCodeUtils"
-version = "0.1.5"
+version = "0.1.6"
 description = "常用功能模块快速使用库."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",

@@ -3,8 +3,8 @@
 # @author: firstelfin
 # @time: 2024/08/19 11:49:40
 
-# from .shape_match import read_img_and_json, ComponentStructuralSimilarity, ShapeBasedMatch
-from .bbox_match import *
+# from .shapeMatch import read_img_and_json, ComponentStructuralSimilarity, ShapeBasedMatch
+from .bboxMatch import *
 
 __all__ = [
     # 'read_img_and_json', 'ComponentStructuralSimilarity', 'ShapeBasedMatch',

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   log_config.py
+@File    :   logConfig.py
 @Time    :   2024/08/18 19:20:54
 @Author  :   firstElfin 
 @Version :   1.0

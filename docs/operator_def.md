@@ -107,9 +107,9 @@ class MyOperator(BaseOperator):
 
 if __name__ == "__main__":
     tasks = {"my_op": "MyOperator"}
-    task_manage = TaskManager(tasks=tasks, operators=OPERATORS_REGISTRY)
-    task_manage.save_json_cfg("task_op.json")
-    task_manage.load_json_cfg("task_op.json")
-    for task_obj in task_manage.generate_graph():
+    taskManage = TaskManager(tasks=tasks, operators=OPERATORS_REGISTRY)
+    taskManage.save_json_cfg("task_op.json")
+    taskManage.load_json_cfg("task_op.json")
+    for task_obj in taskManage.generate_graph():
         task_obj({})
 ```

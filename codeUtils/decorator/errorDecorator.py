@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   error_decorator.py
+@File    :   errorDecorator.py
 @Time    :   2024/08/18 17:52:59
 @Author  :   firstElfin 
 @Version :   1.0
 @Desc    :   None
 '''
 
-import inspect
 import traceback
 from loguru import logger
 from ..tools import is_async_function
@@ -70,9 +69,11 @@ class ErrorCheck(object):
     def __call__(self, cls) -> type:
 
         # 定义__call__
-        cls_call = cls.__call__
+        is_class = isinstance(cls, type)
+        cls_call = cls.__call__ if is_class else cls
+
         async_status = is_async_function(cls_call)
-        res_item_error_msg = f"ResItemAttrError: {cls.class_name} does not have parameter {self.res_obj}; "\
+        res_item_error_msg = f"ResItemAttrError: {cls.__name__} does not have parameter {self.res_obj}; "\
             f"Please use the format {self.res_obj}={self.res_obj}_param to pass parameters within the __call__ method."
 
         def call_hook(_self, *args, **kwargs):
@@ -97,8 +98,10 @@ class ErrorCheck(object):
                 res_item = self.inject(res_item, e)
                 return res_item
         
-        cls.__call__ = call_hook if not async_status else async_call_hook
-
+        if is_class:
+            cls.__call__ = call_hook if not async_status else async_call_hook
+        else:
+            cls = call_hook if not async_status else async_call_hook
         return cls
 
     def inject(self, res_item, e):
@@ -118,7 +121,7 @@ class ErrorCheck(object):
         traceback_list = traceback.extract_tb(e.__traceback__)[1:]
         traceback_list.reverse()
         traceback_str = f" --> ".join([str(tl) for tl in traceback_list])
-        suffix_desc = f" --> errorColNum:[{traceback_list[-1].colno}->{traceback_list[-1].end_colno}]"
+        suffix_desc = f" --> errorColNum:[{traceback_list[-1].colno+1}->{traceback_list[-1].end_colno+1}]"
         error_str += " tracebackStr:" + traceback_str + suffix_desc
         error_class = error_str.split(":")[0]
         error_code = self.type2code.get(error_class, 99)

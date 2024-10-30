@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   base_operator.py
+@File    :   baseOperator.py
 @Time    :   2024/09/26 14:56:47
 @Author  :   firstElfin 
 @Version :   0.1.4
@@ -9,9 +9,9 @@
 '''
 
 from abc import ABCMeta, abstractmethod
-from ..match_factory.bbox_match import ios_box
+from ..matchFactory.bboxMatch import ios_box
 from ..decorator.registry import Registry
-from .param_object import FloatParam
+from .paramObject import FloatParam
 
 
 OPERATORS_REGISTRY = Registry("operators")

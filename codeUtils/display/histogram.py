@@ -21,7 +21,7 @@ class HistDisplay:
         self.data = data
         self.save_path = Path(save_path)
         if chinese:
-            from ..matrix.confusion_matrix import ConfusionMatrix
+            from ..matrix.confusionMatrix import ConfusionMatrix
             ConfusionMatrix.set_plt(font_path=chinese_path if chinese_path else "codeUtils/SourceHanSerifSC-Regular.otf")
 
     def subplots_display(

@@ -8,4 +8,4 @@
 @Desc    :   None
 '''
 
-from .log_config import setup_logger
+from .logConfig import setup_logger

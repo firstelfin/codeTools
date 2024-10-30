@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   task_manage.py
+@File    :   taskManage.py
 @Time    :   2024/09/25 10:01:51
 @Author  :   firstElfin 
 @Version :   0.1.3
@@ -25,9 +25,9 @@ class TaskManager:
     ...         self.areas = IntParam(10000)  # 参数会被代理检查
     ...         self.area_thresh = 0.0001     # 参数不会被代理
     >>> tasks1 = [('add', 'AddTask'), ('sub', 'SubTask')]
-    >>> task_manage1 = TaskManager(tasks=tasks1, operators={"AreasFilter": AreasFilter})
+    >>> taskManage1 = TaskManager(tasks=tasks1, operators={"AreasFilter": AreasFilter})
     >>> tasks2 = {'add: 'AddTask', 'sub': 'SubTask'}
-    >>> task_manage2 = TaskManager(tasks=tasks2, operators={"AreasFilter": AreasFilter})
+    >>> taskManage2 = TaskManager(tasks=tasks2, operators={"AreasFilter": AreasFilter})
     ```
     """
 

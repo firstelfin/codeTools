@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
-@File    :   confusion_matrix.py
+@File    :   confusionMatrix.py
 @Time    :   2024/08/26 17:38:44
 @Author  :   firstElfin 
 @Version :   1.0
@@ -46,15 +46,15 @@ class ConfusionMatrix:
 
     Examples:
         ```python
-        >>> from codeUtils.matrix.confusion_matrix import ConfusionMatrix
+        >>> from codeUtils.matrix.confusionMatrix import ConfusionMatrix
         >>> cm = ConfusionMatrix(num_classes=3, category=["cat1", "cat2", "cat3"])
         >>> cm.add_matrix_item(i=0, j=1, value=1)
         >>> cm.add_matrix_item(i=1, j=2, value=2)
         >>> cm.add_matrix_item(i=0, j=2, value=3)
         >>> cm.get_fig()
         >>> cm.show_figure()
-        >>> cm.save_figure("confusion_matrix.png")  # 保存混淆矩阵图片
-        >>> cm.save_xlsx("confusion_matrix.xlsx")   # 保存混淆矩阵和Recall-Precision到Excel文件
+        >>> cm.save_figure("confusionMatrix.png")  # 保存混淆矩阵图片
+        >>> cm.save_xlsx("confusionMatrix.xlsx")   # 保存混淆矩阵和Recall-Precision到Excel文件
         >>> cm.simplified_chinese_help()            # 简体中文支持帮助文档
         ```
     

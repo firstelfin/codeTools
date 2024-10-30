@@ -29,11 +29,11 @@ class Registry(object):
 
         >>> @PARAM_REGISTRY
         ... def test():
-        ...     print("test param_object.py")
+        ...     print("test paramObject.py")
         >>> PARAM_REGISTRY.test()
-        test param_object.py
+        test paramObject.py
         >>> PARAM_REGISTRY["test"]()
-        test param_object.py
+        test paramObject.py
         ```
     """
     def __init__(self, name):
@@ -86,7 +86,7 @@ if __name__ == '__main__':
 
     @TestRegistry
     def test():
-        print("test param_object.py")
+        print("test paramObject.py")
 
     TestRegistry.test()
     for key , value in TestRegistry.items():
