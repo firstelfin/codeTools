@@ -11,7 +11,6 @@
 import shutil
 import cv2 as cv
 import numpy as np
-from pynput import keyboard
 from pathlib import Path, PosixPath
 from PIL import Image, ImageDraw, ImageOps
 
@@ -81,7 +80,8 @@ def select_label_by_img(img_path: str|PosixPath, lbl_dir: str|PosixPath, save_di
         save_dir.mkdir(exist_ok=True, parents=True)
     shutil.copy(img_path, save_dir / Path(img_path).name)
     lbl_file = Path(lbl_dir) / Path(img_path).with_suffix(suffix).name
-    shutil.copy(lbl_file, save_dir / lbl_file.name)
+    if lbl_file.exists():
+        shutil.copy(lbl_file, save_dir / lbl_file.name)
 
 
 def select_img(images: list[str|PosixPath], show_func="cv_show", sync_func=None, sync_kwargs=None):

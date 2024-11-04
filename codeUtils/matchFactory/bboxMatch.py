@@ -127,3 +127,22 @@ def rel_box(box1: list, box2: list, trunc: bool=False) -> list:
     if not box_valid(coord):
         raise Exception(f"bboxError: 边框的坐标不符合要求, coord={coord}.")
     return coord
+
+
+def abs_box(box1: list, box2: list) -> list:
+    """box2还原相对坐标到原始坐标系
+
+    :param list box1: 原始图片box1的坐标
+    :param list box2: box2相对于box1的相对坐标框
+    :return list: box1相对于原图的绝对坐标框
+    """
+    x1, y1, _, _ = box1
+    x1_r, y1_r, x2_r, y2_r = box2
+    x1_a = int(x1 + x1_r)
+    y1_a = int(y1 + y1_r)
+    x2_a = int(x1 + x2_r)
+    y2_a = int(y1 + y2_r)
+    coord = [x1_a, y1_a, x2_a, y2_a]
+    if not box_valid(coord):
+        raise Exception(f"bboxError: 边框的坐标不符合要求, coord={coord}.")
+    return coord

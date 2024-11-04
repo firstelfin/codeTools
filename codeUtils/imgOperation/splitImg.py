@@ -160,6 +160,6 @@ def overlap_split(image, image_size=640, overlap_ratio=0.25, use_thumbnail=False
 
 if __name__ == '__main__':
     from PIL import Image
-    src_img = Image.open('/Users/elfin/elfin_data/0810/连云港/110kv南耕7A8线-003大号侧/image_old/110kV_110kV南耕7A8线_110kV南耕7A8线003#_2023-08-05 06_22_12.png')
+    src_img = Image.open('...')
     a, b = overlap_split(src_img, image_size=640, overlap_ratio=0.25, use_thumbnail=False)
     pass
