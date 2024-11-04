@@ -107,7 +107,7 @@ class ErrorCheck(object):
     def inject(self, res_item, e):
         error_code, error_msg = self.get_error_code_msg(e)
         if isinstance(res_item, dict):
-            res_item.update({"self.error_code": error_code, "self.error_msg": error_msg})
+            res_item.update({f"{self.error_code}": error_code, f"{self.error_msg}": error_msg})
             return res_item
         setattr(res_item, self.error_code, error_code)
         setattr(res_item, self.error_msg, error_msg)
@@ -121,7 +121,10 @@ class ErrorCheck(object):
         traceback_list = traceback.extract_tb(e.__traceback__)[1:]
         traceback_list.reverse()
         traceback_str = f" --> ".join([str(tl) for tl in traceback_list])
-        suffix_desc = f" --> errorColNum:[{traceback_list[-1].colno+1}->{traceback_list[-1].end_colno+1}]"
+        try:
+            suffix_desc = f" --> errorColNum:[{traceback_list[-1].colno+1}->{traceback_list[-1].end_colno+1}]"
+        except:
+            suffix_desc = ""
         error_str += " tracebackStr:" + traceback_str + suffix_desc
         error_class = error_str.split(":")[0]
         error_code = self.type2code.get(error_class, 99)
