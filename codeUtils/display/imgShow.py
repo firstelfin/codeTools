@@ -86,9 +86,9 @@ def select_label_by_img(img_path: str|PosixPath, lbl_dir: str|PosixPath, save_di
 
 def select_img(images: list[str|PosixPath], show_func="cv_show", sync_func=None, sync_kwargs=None):
     """根据反馈对图片进行操作，包括：
-    - 按空格或n键切换到下一张图片
-    - 按s键切换到下一张图片, 并调用同步函数
-    - 按p键切换到上一张图片
+    - 按空格或d键切换到下一张图片
+    - 按enter或回车键切换到下一张图片, 并调用同步函数
+    - 按a键切换到上一张图片
     - 按ESC键退出
 
     :param list[str | PosixPath] images: 要处理的图片列表
@@ -103,13 +103,13 @@ def select_img(images: list[str|PosixPath], show_func="cv_show", sync_func=None,
             res = cv_show(str(img_path), return_monitoring=True)
             if res == 27:  # ESC
                 break
-            elif res == 32 or res == 110:  # space or n
+            elif res == 32 or res == ord("d"):  # space or d
                 img_idx = (img_idx + 1) % len(images)
-            elif res == 115:  # s
+            elif res == ord("\n") or res == ord("\r"):  # \n
                 img_idx = (img_idx + 1) % len(images)
                 if sync_func:
                     sync_func(img_path, **sync_kwargs)
-            elif res == 112:  # p
+            elif res == ord("a"):  # a
                 img_idx = (img_idx - 1) % len(images)
 
 if __name__ == '__main__':

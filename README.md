@@ -12,9 +12,12 @@ pip install --index-url https://pypi.org/simple elfinCodeUtils
 
 ```shell
 python3 -m pip install --upgrade build
-python -m build
+python -m build -sw -nx
 twine upload dist/*
 ```
+
+> build 库是一个编译库，参考PYPI官网：https://pypi.org/project/build/
+
 
 ## taskManage
 
