@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1", "msgpack>=1.1.0",
-    "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click"
+    "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click", "pyyaml"
 ]
 
 [tool.setuptools.packages.find]
@@ -26,8 +26,7 @@ include = ["codeUtils", "codeUtils.*"]
 [project.scripts]
 # 命令 = "包名.模块:函数"
 #code-tool = ""
-labelme2yolo = "codeUtils.labelOperation.labelme2yolo:labelme2yoloCli"
-#addPath = "codeUtils.tools.pathAppend:path_append_cli"
+elfin = "codeUtils.labelOperation.labelOperationCli:elfin"
 
 #[project.urls]
 #"Homepage" = "https://github.com/firstelfin/codeTools"

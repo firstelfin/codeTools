@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 
-
 def path_append(file, depth=1):
     FILE = Path(file).resolve()
     ROOT = FILE.parents[depth]

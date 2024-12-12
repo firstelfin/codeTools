@@ -8,41 +8,27 @@
 @Desc    :   This script is used to convert labelme annotation to yolo format.
 '''
 
+import argparse
 import click
 from pathlib import Path, PosixPath
 from codeUtils.labelOperation.readLabel import parser_json
 
-@click.command()
-@click.option('--labelme_json_dir', type=click.Path(exists=True), help='labelme annotation directory.')
-@click.option('--yolo_save_dir', type=click.Path(exists=True), help='yolo format save directory.')
-@click.option('--cls_ids', type=click.Path(exists=True), help='class id mapping file.')
-def labelme2yoloCli(labelme_json_dir: PosixPath, yolo_save_dir: PosixPath, cls_ids: dict) -> None:
-    
-    if not labelme_json_dir:
-        raise ValueError('labelme_json_dir is not specified.')
-    if not yolo_save_dir:
-        raise ValueError('yolo_save_dir is not specified.')
-    if not cls_ids:
-        raise ValueError('cls_ids is not specified.')
-    
-    labelme2yolo(labelme_json_dir, yolo_save_dir, cls_ids)
 
-
-def labelme2yolo(labelme_json_dir: PosixPath, yolo_save_dir: PosixPath, cls_ids: dict) -> None:
+def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
     """
     This function is used to convert labelme annotation to yolo format.
 
-    :param PosixPath labelme_json_dir: labelme annotation directory.
-    :param PosixPath yolo_save_dir: yolo format save directory.
-    :param dict cls_ids: class id mapping.
+    :param PosixPath src_dir: labelme annotation directory.
+    :param PosixPath dst_dir: yolo format save directory.
+    :param dict classes: class id mapping.
     """
     
-    if isinstance(cls_ids, str):
-        with open(cls_ids, 'r+', encoding='utf-8') as f:
+    if isinstance(classes, str):
+        with open(classes, 'r+', encoding='utf-8') as f:
             cls_list = f.readlines()
-        cls_ids = {cls_txt.strip().split()[0]: i for i, cls_txt in enumerate(cls_list)}
+        classes = {cls_txt.strip().split()[0]: i for i, cls_txt in enumerate(cls_list)}
     
-    for json_file in Path(labelme_json_dir).rglob('*.json'):
+    for json_file in Path(src_dir).rglob('*.json'):
         # 排出特殊文件
         if json_file.name.startswith('.'):
             continue
@@ -53,7 +39,7 @@ def labelme2yolo(labelme_json_dir: PosixPath, yolo_save_dir: PosixPath, cls_ids:
         # 标注转换
         labels_set = set()
         for shape in labelme_json['shapes']:
-            label = cls_ids.get(shape['label'], shape['label'])
+            label = classes.get(shape['label'], shape['label'])
             points = shape['points']
             img_h = labelme_json['imageHeight']
             img_w = labelme_json['imageWidth']
@@ -72,7 +58,7 @@ def labelme2yolo(labelme_json_dir: PosixPath, yolo_save_dir: PosixPath, cls_ids:
                 labels_set.add(f"{label} {polygon_points}\n")
         
         # 保存yolo格式的txt文件
-        txt_file = Path(yolo_save_dir) / (json_file.stem + '.txt')
+        txt_file = Path(dst_dir) / (json_file.stem + '.txt')
         labels = list(labels_set)
         with open(txt_file, 'w+', encoding='utf-8') as f:
             f.writelines(labels)
