@@ -22,8 +22,9 @@ twine upload dist/*
 
 - [X] 完成taskManage模块的编写: 参考[文档](./docs/taskManage.md)
 
-## Shell Cli
+## Cli
 
+### 标注文件互相转换
 - [X] 完成labelme2yolo的开发：使用 `elfin labelme2yolo -h`查看帮助;
 - [ ] 完成labelme2coco的开发：使用 `elfin labelme2coco -h`查看帮助;
 - [ ] 完成labelme2voc的开发：使用 `elfin labelme2voc -h`查看帮助;
@@ -33,7 +34,12 @@ twine upload dist/*
 - [ ] 完成coco2yolo的开发：使用 `elfin coco2yolo -h`查看帮助;
 - [ ] 完成coco2labelme的开发：使用 `elfin coco2labelme -h`查看帮助;
 - [ ] 完成coco2voc的开发：使用 `elfin coco2voc -h`查看帮助;
-- [ ] 完成voc2yolo的开发：使用 `elfin voc2yolo -h`查看帮助;
+- [X] 完成voc2yolo的开发：使用 `elfin voc2yolo -h`查看帮助;
 - [ ] 完成voc2labelme的开发：使用 `elfin voc2labelme -h`查看帮助;
 - [ ] 完成voc2coco的开发：使用 `elfin voc2coco -h`查看帮助;
+
+### 标注过滤
 - [X] 完成yoloLabelExclude的开发：使用 `elfin yoloLabelExclude -h`查看帮助;
+
+### 配置文件生成
+- [X] 完成vocGenNames2Id的开发：使用 `elfin vocGenNames2Id -h`查看帮助;

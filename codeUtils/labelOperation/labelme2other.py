@@ -14,6 +14,42 @@ from pathlib import Path, PosixPath
 from codeUtils.labelOperation.readLabel import parser_json
 
 
+def labelme_show():
+    show_dict = {
+        "version": "4.5.6",
+        "flags": {},
+        "shapes": [
+            {
+                "label": "car",
+                "points": [
+                    [100.0, 100.0],
+                    [200.0, 100.0],
+                    [200.0, 200.0],
+                    [100.0, 200.0]
+                ],
+                "group_id": None,
+                "shape_type": "polygon",
+                "flags": {}
+            },
+            {
+                "label": "person",
+                "points": [
+                    [300.0, 300.0],
+                    [654.0, 400.0]
+                ],
+                "group_id": None,
+                "shape_type": "rectangle",
+                "flags": {}
+            }
+        ],
+        "imagePath": "example.jpg",
+        "imageData": None,
+        "imageHeight": 300,
+        "imageWidth": 400
+    }
+    print(show_dict)
+
+
 def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
     """
     This function is used to convert labelme annotation to yolo format.
@@ -62,3 +98,16 @@ def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
         labels = list(labels_set)
         with open(txt_file, 'w+', encoding='utf-8') as f:
             f.writelines(labels)
+
+
+def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
+    pass
+
+
+def labelme2coco(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
+    pass
+
+
+def labelme2industai(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
+    pass
+
