@@ -168,3 +168,4 @@ __pycache__/
 test*.py
 test/
 labelme_jsons/
+test*/

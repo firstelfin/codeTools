@@ -15,8 +15,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from codeUtils.labelOperation.readLabel import read_voc
-from codeUtils.labelOperation.readLabel import parser_json
+from codeUtils.labelOperation.readLabel import read_voc, read_txt
 
 
 INS_sample = [
@@ -30,7 +29,8 @@ INS_sample = [
             "ymin": 288,
             "xmax": 387,
             "ymax": 339
-        }
+        },
+        "score": 0.9999999
     },
     {
         "name": "fangzhenchui",
@@ -62,11 +62,18 @@ VOC_HEADER = {
 }
 
 
-def voc_show(voc_header: dict = None, objects: list[dict] = None):
-    annotation = voc_generate(voc_header, objects)
+def voc_show(voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+    annotation = voc_generate(voc_header, objects, other_keys)
     print(annotation.prettify(formatter="html"))
 
-def voc_generate(voc_header: dict = None, objects: list[dict] = None):
+def voc_generate(voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+    """生成 voc 格式的标注文件
+
+    :param dict voc_header: voc格式的文件头信息(非实例信息), defaults to None
+    :param list[dict] objects: 实例信息, defaults to None
+    :param list other_keys: 自定义实例属性列表, defaults to None
+    """
+
     if objects is None:
         objects = INS_sample
     if voc_header is None:
@@ -156,7 +163,16 @@ def voc_generate(voc_header: dict = None, objects: list[dict] = None):
         ymax_tag = annotation.new_tag("ymax")
         ymax_tag.string = str(obj["bndbox"]["ymax"])
         bndbox_tag.append(ymax_tag)
-    
+
+        if other_keys is None:
+            continue
+        for key in other_keys:
+            if key not in obj:
+                continue
+            key_tag = annotation.new_tag(key)
+            key_tag.string = str(obj[key])
+            object_tag.append(key_tag)
+
     return annotation
 
 
@@ -168,7 +184,13 @@ def get_voc_names(voc_file: str):
     return names
 
 
-def voc_gen_names(src_dir: str, dst_file: str = None):
+def voc_gen_classes(src_dir: str, dst_file: str = None):
+    """生成classes.txt文件
+
+    :param str src_dir: xml标注目录路径, 文件夹下平铺所有XML文件
+    :param str dst_file: classes.txt文件保存路径, defaults to None
+    :return list: names列表
+    """
 
     all_names = set()
     all_objects_list = []
@@ -180,15 +202,15 @@ def voc_gen_names(src_dir: str, dst_file: str = None):
             name_list = names.result()
             all_names.update(name_list)
 
-    names_dict = {name: i for i, name in enumerate(all_names)}
-    
+    all_names = list(all_names)
     if dst_file is None:
-        dst_file = Path(src_dir) / "names2id.json"
+        dst_file = Path(src_dir) / "voc2YoloClasses.txt"
         
     with open(dst_file, "w+", encoding="utf-8") as f:
-        json.dump(names_dict, f, indent=4)
+        for name in all_names:
+            f.write(name + "\n")
     
-    return names_dict
+    return all_names
 
 
 def voc_to_yolo(src_file: str, dst_file: str = None, names: dict = None, img_valid: bool = False):
@@ -223,18 +245,28 @@ def voc_to_yolo(src_file: str, dst_file: str = None, names: dict = None, img_val
     return dst_file
 
 
-def voc2yolo(src_dir: str, dst_dir: str = None, names: dict = None, img_valid: bool = False):
+def voc2yolo(src_dir: str, dst_dir: str = None, classes: list = None, img_valid: bool = False):
+    """xml标注目录转换为yolo格式
+
+    :param str src_dir: xml标注目录路径, 文件夹下平铺所有XML文件
+    :param str dst_dir: yolo格式标注输出路径, defaults to None
+    :param list classes: classes.txt文件路径, defaults to None
+    :param bool img_valid: 是否对图片进行检查, defaults to False
+    """
     if dst_dir is None:
         dst_dir = src_dir + "_yolo"
     dst_dir = Path(dst_dir)
     dst_dir.mkdir(exist_ok=True, parents=True)
 
-    if names is None:
-        raise ValueError("names is None. Please provide a dict of class names(name: id).")
-    if isinstance(names, str) and Path(names).exists():
-        names = parser_json(names)
-    if not isinstance(names, dict):
-        raise ValueError("names should be a dict: {name: id}.")
+    if classes is None:
+        raise ValueError("classes is None. Please provide a list of class names.")
+    if isinstance(classes, str) and Path(classes).exists():
+        classes = read_txt(classes)
+    if not isinstance(classes, list):
+        raise ValueError("classes should be a list of class names.")
+
+    # 生成类别映射表
+    names = {name: i for i, name in enumerate(classes)}
 
     # xml文件转换为yolo格式, 文件已经包含了所有信息， 不需要额外
     all_results = []

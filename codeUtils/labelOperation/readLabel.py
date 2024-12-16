@@ -87,7 +87,18 @@ def read_voc(label_file: str) -> dict:
     }
     
     return voc_dict
-    
+
+
+def read_txt(txt_file: str):
+    res = []
+    with open(txt_file, 'r+', encoding='utf-8') as f:
+        lines = f.readlines()
+    for line in lines:
+        line = line.strip().replace("\n", "")
+        if not line:
+            continue
+        res.append(line)
+    return res
 
 if __name__ == '__main__':
     voc_file = "/Users/elfin/project/codeTools/test/test/elfin/yoloLabelTest/voc/05_87728_金具-保护金具-防振锤-滑移-appress_2.xml"

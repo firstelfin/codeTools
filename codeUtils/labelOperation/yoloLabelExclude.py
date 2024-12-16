@@ -41,7 +41,7 @@ class YoloLabelExclude(object):
         >>> yolo_label_exclude('path/to/save_total_datasets', cp_img=True)
     
     Cli:
-        >>> elfin yoloLabelExclude --include_classes 2 4 8 --data_yaml path/to/old.yaml --save_dir path/to/save_total_datasets --cp_img
+        >>> elfin yoloLabelExclude --include_classes 2 4 8 --data_yaml path/to/old.yaml --dst_dir path/to/save_total_datasets --cp_img
     """
 
     def __init__(self, include_classes: list[int], data_yaml: str):
@@ -57,6 +57,19 @@ class YoloLabelExclude(object):
     def load_yaml(self):
         data = yaml.load(open(self.data_yaml, 'r'), Loader=yaml.FullLoader)
         return data
+    
+    def save_classes(self, save_dir: str = None):
+        """保存新的classes.txt文件
+
+        :param str save_dir: 保存地址, defaults to None
+        """
+        if save_dir is None:
+            save_dir = self.data_root
+        else:
+            save_dir = Path(save_dir)
+        with open(save_dir / f'classes_{self.exclude_title}.txt', 'w') as f:
+            for i in range(len(self.include_classes)):
+                f.write(f'{self.new_names[i]}\n')
     
     def save_yaml(self, save_dir: str = None):
         """保存新标签文件
@@ -138,19 +151,19 @@ class YoloLabelExclude(object):
         for res in results:
             res.result()
 
-    def __call__(self, save_dir: str = None, cp_img: bool = False):
+    def __call__(self, dst_dir: str = None, cp_img: bool = False):
         """标签转换接口
 
-        :param str save_dir: 新标签保存地址, defaults to None
+        :param str dst_dir: 新标签保存地址, defaults to None
         :param bool cp_img: 是否移动图片到save_dir, defaults to False
         """
-        if cp_img and save_dir is None:
+        if cp_img and dst_dir is None:
             raise ValueError("save_dir must be set when cp_img is True.")
-        if save_dir is  None or Path(save_dir).absolute() == self.data_root:
+        if dst_dir is  None or Path(dst_dir).absolute() == self.data_root:
             cp_img = False
-        if save_dir is not None:
-            save_dir = Path(save_dir)
-            save_dir.mkdir(parents=True, exist_ok=True)
+        if dst_dir is not None:
+            dst_dir = Path(dst_dir)
+            dst_dir.mkdir(parents=True, exist_ok=True)
         
         all_subsets = []
         for mode in ['train', 'val', 'test']:
@@ -165,8 +178,8 @@ class YoloLabelExclude(object):
             lbl_dir = self.data_root / str(subset) / 'labels'
             img_dir = self.data_root / str(subset) / 'images'
             if cp_img:
-                img_save_dir = Path(save_dir) / str(subset) / 'images'
-                lbl_save_dir = Path(save_dir) / str(subset) / 'labels'
+                img_save_dir = Path(dst_dir) / str(subset) / 'images'
+                lbl_save_dir = Path(dst_dir) / str(subset) / 'labels'
                 img_save_dir.mkdir(parents=True, exist_ok=True)
                 lbl_save_dir.mkdir(parents=True, exist_ok=True)
             else:
@@ -180,4 +193,6 @@ class YoloLabelExclude(object):
             logger.info(f"Subset {subset} done.")
 
         # 生成新的yaml文件
-        self.save_yaml(save_dir)
+        self.save_yaml(dst_dir)
+        # 生成新的classes.txt文件
+        self.save_classes(dst_dir)

@@ -56,7 +56,7 @@ def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
 
     :param PosixPath src_dir: labelme annotation directory.
     :param PosixPath dst_dir: yolo format save directory.
-    :param dict classes: class id mapping.
+    :param dict classes: classes.txt file path or classes name dict: {class_name: class_id}.
     """
     
     if isinstance(classes, str):

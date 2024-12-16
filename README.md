@@ -24,6 +24,8 @@ twine upload dist/*
 
 ## Cli
 
+更多细节参考[DOCS](docs/cli使用指南.md)
+
 ### 标注文件互相转换
 
 - [X] 完成labelme2yolo的开发：使用 `elfin labelme2yolo -h`查看帮助;
@@ -45,4 +47,4 @@ twine upload dist/*
 
 ### 配置文件生成
 
-- [X] 完成vocGenNames2Id的开发：使用 `elfin vocGenNames2Id -h`查看帮助;
+- [X] 完成voc2yoloClasses的开发：使用 `elfin voc2yoloClasses -h`查看帮助;
