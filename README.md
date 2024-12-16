@@ -25,6 +25,7 @@ twine upload dist/*
 ## Cli
 
 ### 标注文件互相转换
+
 - [X] 完成labelme2yolo的开发：使用 `elfin labelme2yolo -h`查看帮助;
 - [ ] 完成labelme2coco的开发：使用 `elfin labelme2coco -h`查看帮助;
 - [ ] 完成labelme2voc的开发：使用 `elfin labelme2voc -h`查看帮助;
@@ -39,7 +40,9 @@ twine upload dist/*
 - [ ] 完成voc2coco的开发：使用 `elfin voc2coco -h`查看帮助;
 
 ### 标注过滤
+
 - [X] 完成yoloLabelExclude的开发：使用 `elfin yoloLabelExclude -h`查看帮助;
 
 ### 配置文件生成
+
 - [X] 完成vocGenNames2Id的开发：使用 `elfin vocGenNames2Id -h`查看帮助;

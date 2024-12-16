@@ -62,11 +62,15 @@ VOC_HEADER = {
 }
 
 
-def voc_generate(voc_title: dict = None, objects: list[dict] = None):
+def voc_show(voc_header: dict = None, objects: list[dict] = None):
+    annotation = voc_generate(voc_header, objects)
+    print(annotation.prettify(formatter="html"))
+
+def voc_generate(voc_header: dict = None, objects: list[dict] = None):
     if objects is None:
         objects = INS_sample
-    if voc_title is None:
-        voc_title = VOC_HEADER
+    if voc_header is None:
+        voc_header = VOC_HEADER
     
     annotation = BeautifulSoup(features="xml")
 
@@ -76,41 +80,41 @@ def voc_generate(voc_title: dict = None, objects: list[dict] = None):
 
     # 图片相关信息
     folder_tag = annotation.new_tag("folder")
-    folder_tag.string = voc_title["folder"]
+    folder_tag.string = voc_header["folder"]
     annotation_tag.append(folder_tag)
 
     filename_tag = annotation.new_tag("filename")
-    filename_tag.string = voc_title["filename"]
+    filename_tag.string = voc_header["filename"]
     annotation_tag.append(filename_tag)
 
     path_tag = annotation.new_tag("path")
-    path_tag.string = voc_title["path"]
+    path_tag.string = voc_header["path"]
     annotation_tag.append(path_tag)
 
     source_tag = annotation.new_tag("source")
     annotation_tag.append(source_tag)
 
     database_tag = annotation.new_tag("database")
-    database_tag.string = voc_title["source"]["database"]
+    database_tag.string = voc_header["source"]["database"]
     source_tag.append(database_tag)
 
     size_tag = annotation.new_tag("size")
     annotation_tag.append(size_tag)
 
     width_tag = annotation.new_tag("width")
-    width_tag.string = str(voc_title["size"]["width"])
+    width_tag.string = str(voc_header["size"]["width"])
     size_tag.append(width_tag)
 
     height_tag = annotation.new_tag("height")
-    height_tag.string = str(voc_title["size"]["height"])
+    height_tag.string = str(voc_header["size"]["height"])
     size_tag.append(height_tag)
 
     depth_tag = annotation.new_tag("depth")
-    depth_tag.string = str(voc_title["size"]["depth"])  # 假设是 RGB 彩图
+    depth_tag.string = str(voc_header["size"]["depth"])  # 假设是 RGB 彩图
     size_tag.append(depth_tag)
 
     segmented_tag = annotation.new_tag("segmented")
-    segmented_tag.string = str(voc_title["segmented"])
+    segmented_tag.string = str(voc_header["segmented"])
     annotation_tag.append(segmented_tag)
 
     # 物体相关信息
@@ -153,7 +157,6 @@ def voc_generate(voc_title: dict = None, objects: list[dict] = None):
         ymax_tag.string = str(obj["bndbox"]["ymax"])
         bndbox_tag.append(ymax_tag)
     
-    print(annotation.prettify(formatter="html"))
     return annotation
 
 
