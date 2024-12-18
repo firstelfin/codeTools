@@ -66,6 +66,21 @@ def voc_show(voc_header: dict = None, objects: list[dict] = None, other_keys: li
     annotation = voc_generate(voc_header, objects, other_keys)
     print(annotation.prettify(formatter="html"))
 
+
+def voc_save(xml_file: str, voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+    """保存 voc 格式的标注文件
+
+    :param str xml_file: 保存的文件路径
+    :param dict voc_header: 文件基础信息, defaults to None
+    :param list[dict] objects: 实例的列表, 元素是实例字典, defaults to None
+    :param list other_keys: 自定义实例属性列表, defaults to None
+    """
+    annotation = voc_generate(voc_header, objects, other_keys)
+    lxml_tree = etree.ElementTree(etree.fromstring(str(annotation).encode("utf-8")))
+    with open(xml_file, "wb") as f:
+        lxml_tree.write(f, pretty_print=True, encoding="utf-8", xml_declaration=True)
+
+
 def voc_generate(voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
     """生成 voc 格式的标注文件
 

@@ -43,10 +43,11 @@ def read_yolo(label_file: str):
     return labels
 
 
-def read_voc(label_file: str) -> dict:
-    """读取voc格式的标签文件, 返回一个json对象
+def read_voc(label_file: str, extra_keys: list = None) -> dict:
+    """读取voc格式的标签文件, 返回一个json对象, 指定extra_keys可以读取标注实例中额外的键值对
 
     :param str label_file: voc格式的标签文件路径
+    :param list extra_keys: 额外需要添加到object元素字典中的键列表, 格式为["key1", "key2",...]
     :return dict: voc格式的标签文件内容, 组织格式是超文本标签组织格式的映射
     """
     
@@ -58,11 +59,12 @@ def read_voc(label_file: str) -> dict:
         return None
     
     # 解析xml文件
-    soup = BeautifulSoup(xml_str, 'lxml')
+    soup = BeautifulSoup(xml_str, 'xml')
 
     voc_dict = {
         'folder': soup.find('folder').text,
         'filename': soup.find('filename').text,
+        'path': soup.find('path').text if soup.find('path') else "",
         'source': {"database": soup.find('source').find('database').text},
         'segmented': int(soup.find('segmented').text),
         'size': {
@@ -81,7 +83,8 @@ def read_voc(label_file: str) -> dict:
                     'ymin': int(obj.find('bndbox').find('ymin').text),
                     'xmax': int(obj.find('bndbox').find('xmax').text),
                     'ymax': int(obj.find('bndbox').find('ymax').text)
-                }
+                },
+                **{key: obj.find(key).text for key in extra_keys}
             } for obj in soup.find_all('object')
         ]
     }
@@ -100,7 +103,3 @@ def read_txt(txt_file: str):
         res.append(line)
     return res
 
-if __name__ == '__main__':
-    voc_file = "/Users/elfin/project/codeTools/test/test/elfin/yoloLabelTest/voc/05_87728_金具-保护金具-防振锤-滑移-appress_2.xml"
-    a = read_voc(voc_file)
-    print(a)
