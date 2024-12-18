@@ -13,16 +13,6 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-
-def yolo_show():
-    yolo_list = [
-        [0, 0.5, 0.5, 0.56, 0.8],
-        [1, 0.25, 0.5, 0.23, 0.65],
-    ]
-    print(yolo_list)
-    return yolo_list
-
-
 # def yolo_to_voc(src_dir: str, dst_dir: str = None, classes: str = None) -> None:
 #     """Convert YOLO format to VOC format.
 

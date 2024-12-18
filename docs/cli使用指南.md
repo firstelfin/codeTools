@@ -26,11 +26,10 @@ elfin voc2yolo\
 2. dst_dir：yolo格式的生成标注文件存放路径
 3. classes：classes.txt文件路径
 
-
 ## labelme2yolo: 从labelme标注文件转yolo标注
 
 ```shell
-elfin labelme2yolo labelme_jsons labelme_jsons labelme_jsons/classes.tx
+elfin labelme2yolo labelme_jsons labelme_jsons labelme_jsons/classes.txt
 ```
 
 参数说明：

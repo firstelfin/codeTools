@@ -169,3 +169,5 @@ test*.py
 test/
 labelme_jsons/
 test*/
+install_self.sh
+rm_dist.sh

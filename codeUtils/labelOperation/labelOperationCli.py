@@ -8,15 +8,15 @@
 @Desc    :   标签转换工具的命令行接口
 '''
 
-from codeUtils.__base__ import args
+from codeUtils.__base__ import set_args
 from codeUtils.labelOperation.labelme2other import labelme2yolo
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc_gen_classes
 
 
-
 def elfin():
     print("Welcome to elfin's label operation tool!")
+    args = set_args()
     if args.mode == "labelme2yolo":
         src_dir, dst_dir, classes = args.src_dir, args.dst_dir, args.classes
         labelme2yolo(src_dir, dst_dir, classes)

@@ -58,6 +58,9 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
     except:
         return None
     
+    if extra_keys is None:
+        extra_keys = []
+
     # 解析xml文件
     soup = BeautifulSoup(xml_str, 'xml')
 

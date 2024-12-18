@@ -24,9 +24,9 @@ class YoloLabelExclude(object):
     2. 剔除不在include_classes中的类别, 删除对应的标签行
     3. 默认在labels同级文件夹创建新文件存放新标签, 也可以指定保存地址
     4. 指定存放地址是指定yaml文件的path路径, 数据集子集会根据结构重建
-    5. cp_img参数控制是否复制图片到新文件夹, 默认不复制, cp_img=True时, 新标签才会保存到save_dir
-    6. save_dir存在时, 新的yaml文件会根据save_dir的地址和原yaml文件名生成, 并保存到save_dir
-    7. save_dir存在时, classes.txt文件会在save_dir中生成, 否则在原数据集下生成(不会替换原文件)
+    5. cp_img参数控制是否复制图片到新文件夹, 默认不复制, cp_img=True时, 新标签才会保存到dst_dir
+    6. dst_dir存在时, 新的yaml文件会根据dst_dir的地址和原yaml文件名生成, 并保存到dst_dir
+    7. dst_dir存在时, classes.txt文件会在dst_dir中生成, 否则在原数据集下生成(不会替换原文件)
 
     :param list include_classes: 选中留下的标签
     :param str data_yaml: 原始数据的yaml文件路径

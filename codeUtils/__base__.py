@@ -40,26 +40,26 @@ def voc2yolo_set_args(voc2yolo_parser):
     voc2yolo_config.add_argument('--img_valid', action='store_true', help='copy image to save directory.')
 
 
-def voc_gen_names2id_set_args(voc2classes_parser):
-    epilog_str = VOC2YOLOCLASSES_DESC
-    voc2names2id_config = voc2classes_parser.add_parser(
+def voc_gen_classes_set_args(voc2classes_parser):
+    voc2classes_config = voc2classes_parser.add_parser(
         'voc2yoloClasses', help='generate classes.txt file from voc annotation',
-        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog_str)
-    voc2names2id_config.add_argument('src_dir', type=str, help='voc annotation directory.')
-    voc2names2id_config.add_argument('--dst_file', type=str, default=None, help='classes.txt file path.')
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    voc2classes_config.add_argument('src_dir', type=str, help='voc annotation directory.')
+    voc2classes_config.add_argument('--dst_file', type=str, default=None, help='classes.txt file path.')
 
 
 # 开始设置命令行工具
-
-labelOperation = argparse.ArgumentParser(
-    description='Label conversion tool',
-    epilog='Enjoy the program! :)',
-    formatter_class=argparse.RawDescriptionHelpFormatter
-)
-labelOperation.add_argument('--mode', help='Subcommand to run')
-sub_command_parser = labelOperation.add_subparsers(dest="mode", title="subcommands")
-labelme2yolo_set_args(sub_command_parser)
-yolo_label_exclude_set_args(sub_command_parser)
-voc2yolo_set_args(sub_command_parser)
-voc_gen_names2id_set_args(sub_command_parser)
-args = labelOperation.parse_args()
+def set_args():
+    labelOperation = argparse.ArgumentParser(
+        description='Label conversion tool',
+        epilog='Enjoy the program! 😄',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    labelOperation.add_argument('--mode', help='Subcommand to run')
+    sub_command_parser = labelOperation.add_subparsers(dest="mode", title="subcommands")
+    labelme2yolo_set_args(sub_command_parser)
+    yolo_label_exclude_set_args(sub_command_parser)
+    voc2yolo_set_args(sub_command_parser)
+    voc_gen_classes_set_args(sub_command_parser)
+    args = labelOperation.parse_args()
+    return args
