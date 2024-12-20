@@ -17,7 +17,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from loguru import logger
 from pathlib import Path
-from ..tools.font_config import set_plt, FONT_PATH
+from codeUtils.tools.font_config import set_plt
 
 
 class ConfusionMatrix:
@@ -80,12 +80,8 @@ class ConfusionMatrix:
         return max_len
 
     @classmethod
-    def set_plt(cls, font_path = "codeUtils/SourceHanSerifSC-Regular.otf"):
-        if not Path(font_path).exists():
-            assert Path(FONT_PATH).exists(), f"字体文件 {font_path} 不存在, 默认字体文件 {FONT_PATH} 也不存在, 请检查!"
-            font_path = FONT_PATH
+    def set_plt(cls, font_path = None):
         set_plt(font_path=font_path)
-        
 
     def add_matrix_item(self, i: int, j: int, value: int):
         self.matrix[i][j] += value

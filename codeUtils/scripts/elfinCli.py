@@ -12,6 +12,7 @@ from codeUtils.__base__ import set_args
 from codeUtils.labelOperation.labelme2other import labelme2yolo
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc_gen_classes
+from codeUtils.tools.font_config import font_download
 
 
 def elfin():
@@ -30,8 +31,8 @@ def elfin():
     elif args.mode == "voc2yoloClasses":
         src_dir, dst_file = args.src_dir, args.dst_file
         voc_gen_classes(src_dir, dst_file)
+    elif args.mode == "font":
+        if args.download:
+            font_download()
     else:
         print("Invalid subcommand")
-
-
-    

@@ -10,12 +10,6 @@
 
 import argparse
 
-VOC2YOLOCLASSES_DESC = """
-Generate classes.txt file from voc annotation.
-Example:
-    elfin voc2yoloClasses /path/to/voc --dst_file /path/to/classes.txt
-"""
-
 
 def labelme2yolo_set_args(labelme2yolo_parser):
     labelme2yolo_config = labelme2yolo_parser.add_parser('labelme2yolo', help='labelme to yolo format')
@@ -48,6 +42,10 @@ def voc_gen_classes_set_args(voc2classes_parser):
     voc2classes_config.add_argument('--dst_file', type=str, default=None, help='classes.txt file path.')
 
 
+def font_download_set_args(font_download_parser):
+    font_download_config = font_download_parser.add_parser('font', help='download font file')
+    font_download_config.add_argument('--download', action='store_true', help='download font file.')
+
 # 开始设置命令行工具
 def set_args():
     labelOperation = argparse.ArgumentParser(
@@ -61,5 +59,6 @@ def set_args():
     yolo_label_exclude_set_args(sub_command_parser)
     voc2yolo_set_args(sub_command_parser)
     voc_gen_classes_set_args(sub_command_parser)
+    font_download_set_args(sub_command_parser)
     args = labelOperation.parse_args()
     return args

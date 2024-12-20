@@ -188,6 +188,12 @@ def save_voc_label(xml_file: str, voc_header: dict = None, objects: list[dict] =
     :param list[dict] objects: 实例的列表, 元素是实例字典, defaults to None
     :param list other_keys: 自定义实例属性列表, defaults to None
     """
+    if objects is None:
+        if "object" in voc_header:
+            objects = voc_header["object"]
+        else:
+            objects = []
+
     annotation = voc_generate(voc_header, objects, other_keys)
     lxml_tree = etree.ElementTree(etree.fromstring(str(annotation).encode("utf-8")))
     with open(xml_file, "wb") as f:
