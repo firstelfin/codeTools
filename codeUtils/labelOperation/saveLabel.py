@@ -8,6 +8,7 @@
 @Desc    :   None
 '''
 
+import json
 from pathlib import Path
 from lxml import etree
 from bs4 import BeautifulSoup
@@ -54,6 +55,11 @@ VOC_HEADER = {
     },
     "segmented": 0
 }
+
+
+def save_json(json_file: str, data):
+    with open(json_file, 'w+', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 def save_yolo_label(label_path: str, label_list: list[str, list]):

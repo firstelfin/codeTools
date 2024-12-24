@@ -68,8 +68,8 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
         'folder': soup.find('folder').text,
         'filename': soup.find('filename').text,
         'path': soup.find('path').text if soup.find('path') else "",
-        'source': {"database": soup.find('source').find('database').text},
-        'segmented': int(soup.find('segmented').text),
+        'source': {"database": soup.find('source').find('database').text if soup.find('source') else "Unknown"},
+        'segmented': int(soup.find('segmented').text) if soup.find('segmented') else 0,
         'size': {
             'width': int(soup.find('size').find('width').text),
             'height': int(soup.find('size').find('height').text),
@@ -78,9 +78,9 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
         'object': [
             {
                 'name': obj.find('name').text,
-                'pose': obj.find('pose').text,
-                'truncated': int(obj.find('truncated').text),
-                'difficult': int(obj.find('difficult').text),
+                'pose': obj.find('pose').text if obj.find('pose') else "Unspecified",
+                'truncated': int(obj.find('truncated').text) if obj.find('truncated') else 0,
+                'difficult': int(obj.find('difficult').text) if obj.find('difficult') else 0,
                 'bndbox': {
                     'xmin': int(obj.find('bndbox').find('xmin').text),
                     'ymin': int(obj.find('bndbox').find('ymin').text),

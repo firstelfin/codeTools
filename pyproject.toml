@@ -16,15 +16,19 @@ classifiers = [
 ]
 dependencies = [
     "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1", "msgpack>=1.1.0",
-    "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click", "pyyaml", "httpx"
+    "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click", "pyyaml", "httpx", "psutil"
 ]
+
+#[tool.poetry.extras]
+#augment = ["codeUtils.augment"]
 
 [tool.setuptools.dynamic]
 version = { attr = "codeUtils.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["codeUtils", "codeUtils.*"]
+include = ["codeUtils"]
+exclude = ["codeUtils.augment"]
 
 [project.scripts]
 # 命令 = "包名.模块:函数"

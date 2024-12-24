@@ -12,6 +12,7 @@ from codeUtils.__base__ import set_args
 from codeUtils.labelOperation.labelme2other import labelme2yolo
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc_gen_classes
+from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
 from codeUtils.tools.font_config import font_download
 
 
@@ -34,5 +35,8 @@ def elfin():
     elif args.mode == "font":
         if args.download:
             font_download()
+    elif args.mode == "cutImg":
+        cut_op = CutImgFromLabel(args.src_dir, args.dst_dir, pattern=args.pattern, target_size=args.size)
+        cut_op(img_dir_name=args.img_dir_name, lbl_dir_name=args.lbl_dir_name)
     else:
         print("Invalid subcommand")

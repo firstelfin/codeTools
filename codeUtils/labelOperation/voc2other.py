@@ -99,6 +99,8 @@ def voc2yolo(src_dir: str, dst_dir: str = None, classes: list = None, img_valid:
 
     if classes is None:
         raise ValueError("classes is None. Please provide a list of class names.")
+    if isinstance(classes, str) and not Path(classes).exists():
+        raise FileNotFoundError(f"classes file {classes} not found.")
     if isinstance(classes, str) and Path(classes).exists():
         classes = read_txt(classes)
     if not isinstance(classes, list):
