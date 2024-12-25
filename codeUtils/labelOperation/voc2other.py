@@ -8,11 +8,15 @@
 @Desc    :   None
 '''
 
+import math
+import psutil
 from tqdm import tqdm
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.labelOperation.readLabel import read_voc, read_txt
+from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
+from codeUtils.tools.font_config import colorstr
 
 
 def get_voc_names(voc_file: str):
@@ -108,21 +112,41 @@ def voc2yolo(src_dir: str, dst_dir: str = None, classes: list = None, img_valid:
 
     # 生成类别映射表
     names = {name: i for i, name in enumerate(classes)}
+    
+    tasks_num = len(list(Path(src_dir).rglob("*.xml")))
+    v2y_desc = colorstr("bright_blue", "bold", "voc2yolo")
+    cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
+    batch_size = 100
+    epoch_num = math.ceil(tasks_num / batch_size)
+    tqdm_tasks = Path(src_dir).rglob("*.xml")
 
-    # xml文件转换为yolo格式, 文件已经包含了所有信息， 不需要额外
-    all_results = []
-    with ThreadPoolExecutor() as executor:
-        for voc_file in Path(src_dir).rglob("*.xml"):
-            all_results.append(
-                executor.submit(
-                    voc_to_yolo, 
-                    str(voc_file), 
-                    str(dst_dir / voc_file.name.replace(".xml", ".txt")), 
-                    names,
-                    img_valid
-                )
-            )
+    # xml文件转换为yolo格式, 文件已经包含了所有信息
+    with ThreadPoolExecutor(max_workers=cpu_num) as executor:
+        with tqdm(total=tasks_num, desc=v2y_desc, dynamic_ncols=True, colour="#CD8500") as v2y_bar:
+            for epoch in range(epoch_num):
+                start_idx = epoch * batch_size
+                end_idx = min(tasks_num, (epoch + 1) * batch_size)
+                
+                inner_tasks = []
+                epoch_size = end_idx - start_idx
 
-        for res in tqdm(as_completed(all_results), total=len(all_results), desc="Voc2Yolo"):
-            res.result()
+                for _ in range(start_idx, end_idx):
+                    voc_file = next(tqdm_tasks)
+                    inner_tasks.append(
+                        executor.submit(
+                            voc_to_yolo, str(voc_file),
+                            str(dst_dir / voc_file.name.replace(".xml", ".txt")),
+                            names,
+                            img_valid
+                        )
+                    )
+                
+                for ti, task in enumerate(as_completed(inner_tasks), start=1):
+                    task.result()
+                    v2y_bar.set_postfix({
+                        BATCH_KEY: f"{ti}/{epoch_size}", 
+                        START_KEY: start_idx, 
+                        END_KEY: end_idx
+                    })
+                    v2y_bar.update()
 

@@ -19,6 +19,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.tools.font_config import colorstr
+from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
 from codeUtils.matchFactory.bboxMatch import box_valid, ios_box, rel_box
 from codeUtils.labelOperation.readLabel import read_voc, read_yolo
 from codeUtils.labelOperation.saveLabel import save_voc_label, save_yolo_label, save_json
@@ -67,6 +68,7 @@ class CutImgFromLabel:
             target_size: int = None, 
             sample_rate: dict = None, 
             use_mask: bool = False, 
+            use_shape: bool = False, 
             ios_thrash: float = 0.7):
         assert pattern.lower() in self.PATTERNS, f"The pattern should be {self.PATTERNS}, but got {pattern}."
         self.pattern = pattern.lower()
@@ -79,6 +81,7 @@ class CutImgFromLabel:
         self.name2cut_box = dict()
         self.cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
         self.batch_size = 100
+        self.use_shape = use_shape
 
     def read_voc_label(self, label_file: str, img_shape: tuple = None):
         label_file = Path(label_file).with_suffix(".xml")
@@ -259,7 +262,7 @@ class CutImgFromLabel:
         img_h, img_w = src_img.shape[:2]
 
         # 裁切一定是根据bbox裁切, bbox列表的表示是: [[cls_id, x1, y1, x2, y2]]
-        bbox_list = getattr(self, f"read_{self.pattern}_label")(label_file, (img_h, img_w))
+        bbox_list = getattr(self, f"read_{self.pattern}_label")(label_file, (img_h, img_w) if self.use_shape else None)
         selected_status = [False] * len(bbox_list)
         save_label_func = getattr(self, f"save_{self.pattern}_label")
 
@@ -321,32 +324,31 @@ class CutImgFromLabel:
         with ThreadPoolExecutor(max_workers=self.cpu_num) as executor:
             tqdm_tasks = image_dir.iterdir()  # 使用生成器双循环迭代
             epoch_desc = colorstr("bright_blue", "bold", "epochProgress")
-            batch_desc = colorstr("bright_white", "bold", "batchProgress")
 
-            # 外层循环：标记epoch
-            with tqdm(total=epoch_num, desc=epoch_desc, position=0, dynamic_ncols=True) as epoch_pbar:
+            with tqdm(total=tasks_num, desc=epoch_desc, position=0, dynamic_ncols=True, colour="#CD8500") as epoch_bar:
                 for epoch in range(epoch_num):
                     start_idx = epoch * self.batch_size
                     end_idx = min(tasks_num, (epoch + 1) * self.batch_size)
-                    epoch_pbar.set_postfix({"Epoch": f"{epoch+1}/{epoch_num}", "startIdx": start_idx, "endIdx": end_idx})
                     
-                    # 内层循环：标记batch
-                    with tqdm(total=end_idx - start_idx, desc=batch_desc, position=1, leave=False, dynamic_ncols=True) as batch_pbar:
-                        inner_tasks = []
-                        for _ in range(start_idx, end_idx):
-                            img_file = next(tqdm_tasks)
-                            lbl_file = label_dir / f"{img_file.stem}.txt"
-                            self.name2cut_box[img_file.stem] = []  # 记录每个图片的裁剪bbox
-                            inner_tasks.append(
-                                executor.submit(self.cut, img_file, lbl_file, (img_dir_name, lbl_dir_name))
-                            )
-                        # 更新进度条
-                        for ti, task in enumerate(as_completed(inner_tasks)):
-                            task.result()
-                            batch_pbar.set_postfix({"task": ti})
-                            batch_pbar.update()
+                    inner_tasks = []
+                    epoch_size = end_idx - start_idx
+                    for _ in range(start_idx, end_idx):
+                        img_file = next(tqdm_tasks)
+                        lbl_file = label_dir / f"{img_file.stem}.txt"
+                        self.name2cut_box[img_file.stem] = []  # 记录每个图片的裁剪bbox
+                        inner_tasks.append(
+                            executor.submit(self.cut, img_file, lbl_file, (img_dir_name, lbl_dir_name))
+                        )
+                    # 更新进度条
+                    for ti, task in enumerate(as_completed(inner_tasks), start=1):
+                        task.result()
+                        epoch_bar.set_postfix({
+                            BATCH_KEY: f"{ti}/{epoch_size}",
+                            START_KEY: start_idx,
+                            END_KEY: end_idx
+                        })
                     
-                    epoch_pbar.update()
+                        epoch_bar.update()
         
         # 开始保存json文件
         json_file = self.dst_dir / "name2cut_box.json"
