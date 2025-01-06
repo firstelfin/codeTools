@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 from loguru import logger
 from pathlib import Path
 from codeUtils.tools.font_config import set_plt
@@ -23,7 +24,11 @@ from codeUtils.tools.font_config import set_plt
 class ConfusionMatrix:
     r"""Confusion Matrix 绘制工具, 此对象接收预测值和真实值, 并根据预测值和真实值计算混淆矩阵, 并绘制混淆矩阵. 混淆矩阵记录
     GT类数据预测为PRED类数据的数量, 并可视化展示. 建议xtick尽量使用长度差异小的字符串.
-
+    
+    ### Note: 
+        1. set_plt 用于设置matplotlib字体, 全局生效. 字体文件会自动下载, 并缓存到 /home/usename/.config/elfin/fonts/
+        2. matrix 横纵坐标设置为yolo的样式, 降低理解成本
+        3. 类别名称列表category可以为空, 则自动生成0-num_classes-1的索引列表, category长度应等于num_classes, 最后一个是backgroud
 
     Args:
         num_classes (int): 类别数量
@@ -65,6 +70,7 @@ class ConfusionMatrix:
     def __init__(self, num_classes, category: list[str] = None, title: str = "Confusion Matrix", cmap: str = "YlGnBu", chinese: bool = False, dpi: int = 100):
         self.num_classes = num_classes
         self.matrix = np.zeros((num_classes, num_classes), dtype=np.int32)
+        self.normal_matrix = np.zeros_like(self.matrix)
         self.category = category
         self.title = title
         self.cmap = cmap
@@ -82,6 +88,7 @@ class ConfusionMatrix:
     @classmethod
     def set_plt(cls, font_path = None):
         set_plt(font_path=font_path)
+        cls.font_size = FontProperties().get_size()
 
     def add_matrix_item(self, i: int, j: int, value: int):
         self.matrix[i][j] += value
@@ -99,10 +106,10 @@ class ConfusionMatrix:
         return int(self.dpi * 0.7) // matrix_num_len
     
     def get_xticks_size(self):
-        matrix_num_len = self.get_matrix_num_len()
-        return self.dpi // matrix_num_len
+        font_sizt = self.font_size if len(self.category) < 50 else self.font_size * 0.8
+        return int(font_sizt)
     
-    def get_fig(self):
+    def get_fig(self, mode: str = None):
         """获取混淆矩阵图片"""
         cell_size = self.get_cell_size()
         xticks_size = self.get_xticks_size()
@@ -112,14 +119,22 @@ class ConfusionMatrix:
         self.imgh = int(0.8 * self.imgw)
         self.figure, self.ax = plt.subplots(figsize=(self.imgw, self.imgh), dpi=self.dpi)
         
+        if mode is None:
+            data = self.matrix
+        elif mode == "normalize":
+            self.get_normalize_matrix()
+            data = self.normal_matrix
+        else:
+            raise ValueError("mode must be None or 'normalize'")
+        
         sns.heatmap(
-            self.matrix, annot=True, fmt="d", cmap=self.cmap, 
+            data, annot=True, fmt="d" if mode is None else ".2f", cmap=self.cmap, 
             xticklabels=self.category, yticklabels=self.category,
             ax=self.ax, linewidths=1, annot_kws={"size": cell_size, "weight": "bold"}
         )
         plt.title(self.title, fontsize=int(xticks_size*1.3))
-        plt.ylabel("GT", fontsize=xticks_size)
-        plt.xlabel("PREDICT", fontsize=xticks_size)
+        plt.ylabel("PREDICT", fontsize=int(xticks_size*1.2))
+        plt.xlabel("GT", fontsize=int(xticks_size*1.2))
         plt.yticks(rotation=0, fontsize=xticks_size)
         plt.xticks(rotation=90, fontsize=xticks_size)
         plt.tight_layout()
@@ -142,10 +157,12 @@ class ConfusionMatrix:
             return None
         plt.show()
 
-    def save_figure(self, path: str):
+    def save_figure(self, path: str, mode: str = None):
         if not self.figure_status:
-            self.get_fig()
+            self.get_fig(mode=mode)
         self.figure.savefig(path, format="png")
+        self.figure_status = False
+        self.figure.clear()
 
     @classmethod
     def simplified_chinese_help(cls):
@@ -178,17 +195,31 @@ class ConfusionMatrix:
         :type path: str
         """
         df = pd.DataFrame(self.matrix, columns=self.category, index=self.category)
-        gt_num = self.matrix.sum(axis=1)
-        pred_num = self.matrix.sum(axis=0)
+        df_normal = pd.DataFrame(self.normal_matrix, columns=self.category, index=self.category)
+
+        gt_num = self.matrix.sum(axis=0)
+        pred_num = self.matrix.sum(axis=1)
         # 对角线元素
         recall = self.matrix.diagonal() / (gt_num  + 1e-5)
         precision = self.matrix.diagonal() / (pred_num  + 1e-5)
         rp = np.stack([gt_num, recall, pred_num, precision], axis=1)
-        total_recall = np.sum(self.matrix.diagonal()) / (gt_num.sum() + 1e-5)
-        total_precision = np.sum(self.matrix.diagonal()) / (pred_num.sum() + 1e-5)
-        rp = np.vstack([rp, [gt_num.sum(), total_recall, pred_num.sum(), total_precision]])
-        df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=self.category+["Total"])
+        # 整体召回精度计算需要排除backgroud, 默认索引为-1
+        total_recall = np.sum(self.matrix.diagonal()) / (gt_num[:-1].sum() + 1e-5)
+        total_precision = np.sum(self.matrix.diagonal()) / (pred_num[:-1].sum() + 1e-5)
+        rp = np.vstack([rp, [gt_num[:-1].sum(), total_recall, pred_num[:-1].sum(), total_precision]])
+
+        mr = np.mean(recall[:-1])
+        mp = np.mean(precision[:-1])
+        rp = np.vstack([rp, [None, mr, None, mp]])
+
+        df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=self.category+["Total", "Mean"])
         
         with pd.ExcelWriter(path) as writer:
             df.to_excel(writer, sheet_name="Confusion Matrix")
+            df_normal.to_excel(writer, sheet_name="Normalized Confusion Matrix")
             df_rp.to_excel(writer, sheet_name="Recall-Precision")
+    
+    def get_normalize_matrix(self):
+        """获取归一化的混淆矩阵"""
+        gt_num = self.matrix.sum(axis=0, keepdims=True).clip(min=1)
+        self.normal_matrix = self.matrix / gt_num

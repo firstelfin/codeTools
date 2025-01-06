@@ -57,7 +57,7 @@ def valid_local_font(font_path: str = None):
             temp_path = Path.home() / f'.config/elfin/fonts/{name}.ttf'
             if temp_path.exists():
                 return str(temp_path)
-        print(f"字体文件 {font_path} 不存在, 也未发现中文字体文件. 下载请调用命令 'elfin font download' 下载默认字体文件！🏇")
+        print(f"字体文件 {font_path} 不存在, 也未发现中文字体文件. 下载请调用命令 'elfin font --download' 下载默认字体文件！🏇")
         return None
 
 
@@ -77,7 +77,6 @@ def set_plt(font_path: str = None):
     rcParams['font.family'] = 'sans-serif'
     rcParams['font.sans-serif'] = [font_name]  # 替换为实际字体名称
     rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-    print(f"字体设置成功, 字体文件: {Path(font_path).name}")
 
 
 def colorstr(*args):

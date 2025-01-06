@@ -62,6 +62,17 @@ def save_json(json_file: str, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
+def save_labelme_label(label_path: str, label_dict: dict):
+    """保存labelme格式的标签文件
+
+    :param label_path: labelme格式的标签文件路径
+    :type label_path: str
+    :param label_dict: labelme格式的标签文件内容
+    :type label_dict: dict
+    """
+    save_json(label_path, label_dict)
+
+
 def save_yolo_label(label_path: str, label_list: list[str, list]):
     """支持自动化保存YOLO格式的标签文件
 

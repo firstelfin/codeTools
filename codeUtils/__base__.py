@@ -8,8 +8,20 @@
 @Desc    :   None
 '''
 
+import sys
 import argparse
+from pathlib import PosixPath
 
+
+PYTHON_MAJOR = sys.version_info[0]
+PYTHON_MINOR = sys.version_info[1]
+PYTHON_VERSION = f'{PYTHON_MAJOR}.{PYTHON_MINOR}'
+
+if PYTHON_VERSION >= '3.11':
+    strPath = str | PosixPath
+else:
+    from typing import Union
+    strPath = Union[str, PosixPath]
 
 def labelme2yolo_set_args(labelme2yolo_parser):
     labelme2yolo_config = labelme2yolo_parser.add_parser('labelme2yolo', help='🔁. labelme to yolo format')
