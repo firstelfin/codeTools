@@ -52,7 +52,108 @@ def get_exp_dir(dst_dir: str, project: str = 'inference') -> PosixPath:
     return Path(dst_dir) / f'{project}{i}'
 
 
-class InferBase(object):
+def path_list_valid(path_dir):
+    if isinstance(path_dir, (str, PosixPath)):
+        datasets = [path_dir]
+    else:
+        datasets = path_dir
+    datasets = [Path(dataset) for dataset in datasets]
+    return datasets
+
+
+class DetectBase(object):
+    """模型推理基类, 指定模型, 设备, 推理参数等, 并提供预测接口
+
+    :param object: _description_
+    :type object: _type_
+    """
+
+    def __init__(self, model: str, device: str, conf: list, nms_iou: float, *args, **kwargs):
+        import torch
+        self.model_path = model
+        self.conf = conf if isinstance(conf, list) else [conf]
+        self.model = self.init_model(model)
+        self.infer_conf = min(conf) if isinstance(conf, list) else conf
+        self.nms_iou = nms_iou
+        self.device = torch.device(device)
+
+    def init_model(self, model_path: str = None):
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            raise ImportError("请安装 ultralytics 库, CLI: `pip install -U ultralytics`")
+        model_path = 'yolo11l.yaml' if model_path is None else model_path
+        model = YOLO(model_path, verbose=False)
+        model_classes_length = len(model.names)
+        if len(self.conf) < model_classes_length:
+            self.conf *= model_classes_length
+        return model
+    
+    @staticmethod
+    def split(src_box) -> list:
+        """根据原始图片的bbox, 自定义图片裁切方案, 返回裁切后子图的bbox列表
+
+        :param src_box: 待裁切图片区域的bbox
+        :type src_box: list, ins. [x1, y1, x2, y2]
+        :return: list of [a1, b1, a2, b2]
+        :rtype: list[list[int]]
+        """
+        return [src_box]
+    
+    @staticmethod
+    def merge(results: list) -> list:
+        """将多个子图的预测结果合并为最终结果
+
+        :param results: list of ins. {'box': [x1, y1, x2, y2], 'label': 'xxx', 'confidence': 0.9, 'segment': [...]}
+        :type results: list
+        :return: list of ins. {'box': [x1, y1, x2, y2], 'label': 'xxx', 'confidence': 0.9, 'segment': [...]}
+        :rtype: list
+        """
+        return results
+    
+    def infer(self, src_img: np.ndarray, windows: list[list], **kwargs) -> list:
+        """深度学习模型推理接口, 返回预测结果相对原始图像的坐标
+
+        ### 重构注意事项
+            - 返回结构体格式：参考 InferBase.save_infer_result.__doc__
+            - verbose全部设置为False, 避免多余的打印
+            - 打印信息统一使用logger进行打印, 不要在细节处设置logger配置
+
+        :param imgs: 待推理图片
+        :type imgs: numpy.ndarray
+        :param windows: 窗口box列表, 如: [x1, y1, x2, y2]
+        :type windows: list[list]
+        """
+        
+        all_sub_preds = []
+        all_sub_imgs = [src_img[box[1]:box[3], box[0]:box[2]] for box in windows]
+        results = self.model(all_sub_imgs, verbose=False, conf=self.infer_conf, iou=self.nms_iou)
+
+        for i, result in enumerate(results):
+            boxes = result.boxes.xyxy.cpu().numpy().tolist()
+            cls_ids = result.boxes.cls.cpu().numpy().tolist()
+            scores = result.boxes.conf.cpu().numpy().tolist()
+            sub_preds = [{
+                'name': result.names[int(obj[0])],
+                'code': int(obj[0]),
+                'box': abs_box(windows[i], obj[2]), # 坐标还原
+                'confidence': obj[1],
+            } for obj in zip(cls_ids, scores, boxes) if  obj[1] >= self.conf[int(obj[0])]]
+            
+            # 坐标还原
+            all_sub_preds.extend(sub_preds)
+        return all_sub_preds
+    
+    def __call__(self, src_img: np.ndarray, **kwargs) -> list:
+        img_shape = src_img.shape[:2]
+        src_box = [0, 0, img_shape[1], img_shape[0]]
+        all_windows = self.split(src_box)
+        all_sub_preds = self.infer(src_img, all_windows, **kwargs)
+        results = self.merge(all_sub_preds)
+        return results
+
+
+class PredictBase(DetectBase):
     """模型推理的基类, 推理结果保存到dst_dir / expName 文件夹下, 文件存在则添加编号, 编码从1开始
     推理基类包含以下功能：
         - 图片[视频]资源加载：返回一个生成器对象, 元素是推理接口的输入数据
@@ -113,7 +214,7 @@ class InferBase(object):
     ## Example
     ```python
     data_name = 'srcLabelTest-test'
-    infer = InferBase(
+    infer = PredictBase(
         src_dir=f'/data1/2024_datasets/xxx/{data_name}/images',
         dst_dir='/data1/2025_datasets/',
         project=data_name
@@ -125,13 +226,16 @@ class InferBase(object):
     ```
     """
 
-    def __init__(self, src_dir, dst_dir, project: str = 'inference'):
-        self.src_dir = Path(src_dir)
+    def __init__(
+            self, src_dir, dst_dir, project: str = 'inference', 
+            model: str = None, device: str = 'cuda:0', conf: list = None, nms_iou: float = None):
+        super().__init__(model, device, conf, nms_iou)
+        self.src_dir = self.src_valid(src_dir)
         self.project = project
         self.dst_dir = get_exp_dir(dst_dir, project)
-        self.model = None
-    
-    def get_defult_dict(self, img_path: str = "", img_shape: tuple = (1080, 1920), version: str = '4.5.6') -> dict:
+
+    @classmethod
+    def get_defult_dict(cls, img_path: str = "", img_shape: tuple = (1080, 1920), version: str = '4.5.6') -> dict:
         return {
             "version": version,
             "flags": {},
@@ -141,6 +245,15 @@ class InferBase(object):
             "imageHeight": img_shape[0],
             "imageWidth": img_shape[1]
         }
+
+    @staticmethod
+    def src_valid(src_dir):
+        if isinstance(src_dir, (str, PosixPath)):
+            all_img_dirs = [src_dir]
+        else:
+            all_img_dirs = src_dir
+        result = [Path(img_dir) for img_dir in all_img_dirs]
+        return result
 
     def load_datasets(self):
         """生成所有图片的路径生成器对象, 并设置第一个输入是items数量
@@ -161,10 +274,7 @@ class InferBase(object):
         :rtype: generator # 生成器对象, 第一个元素是items数量
         """
         
-        if isinstance(self.src_dir, (str, PosixPath)):
-            all_img_dirs = [self.src_dir]
-        else:
-            all_img_dirs = self.src_dir
+        all_img_dirs = self.src_dir
         total_num = 0
         for img_dir in all_img_dirs:
             if not img_dir.exists():
@@ -190,76 +300,11 @@ class InferBase(object):
         :rtype: _type_
         """
         # 使用opencv加载图片
-        src_img = cv.imread(entity_file)
+        src_img = cv.imread(str(entity_file))
         return src_img
 
-    @staticmethod
-    def split(src_box) -> list:
-        """根据原始图片的bbox, 自定义图片裁切方案, 返回裁切后子图的bbox列表
-
-        :param src_box: 待裁切图片区域的bbox
-        :type src_box: list, ins. [x1, y1, x2, y2]
-        :return: list of [a1, b1, a2, b2]
-        :rtype: list[list[int]]
-        """
-        return [src_box]
-    
-    def model_init(self, model_path: str):
-        try:
-            from ultralytics import YOLO
-        except ImportError:
-            raise ImportError("请安装 ultralytics 库")
-        
-        self.model = YOLO(model_path)
-
-    def infer(self, src_img: np.ndarray, windows: list[list], **kwargs) -> list:
-        """深度学习模型推理接口, 返回预测结果相对原始图像的坐标
-
-        ### 重构注意事项
-            - 返回结构体格式：参考 InferBase.save_infer_result.__doc__
-            - verbose全部设置为False, 避免多余的打印
-            - 打印信息统一使用logger进行打印, 不要在细节处设置logger配置
-
-        :param imgs: 待推理图片
-        :type imgs: numpy.ndarray
-        :param windows: 窗口box列表, 如: [x1, y1, x2, y2]
-        :type windows: list[list]
-        """
-        
-        if self.model is None:
-            self.model_init(kwargs.get('model_path', 'yolo11l.yaml'))
-
-        all_sub_preds = []
-        all_sub_imgs = [src_img[box[1]:box[3], box[0]:box[2]] for box in windows]
-        results = self.model(all_sub_imgs, verbose=False)
-
-        for i, result in enumerate(results):
-            boxes = result.boxes.xyxy.cpu().numpy().tolist()
-            cls_ids = result.boxes.cls.cpu().numpy().tolist()
-            scores = result.boxes.conf.cpu().numpy().tolist()
-            sub_preds = [{
-                'name': result.names[int(obj[0])],
-                'code': int(obj[0]),
-                'box': abs_box(windows[i], obj[2]), # 坐标还原
-                'confidence': obj[1],
-            } for obj in zip(cls_ids, scores, boxes)]
-            
-            # 坐标还原
-            all_sub_preds.extend(sub_preds)
-        return all_sub_preds
-
-    @staticmethod
-    def merge(results: list) -> list:
-        """将多个子图的预测结果合并为最终结果
-
-        :param results: list of ins. {'box': [x1, y1, x2, y2], 'label': 'xxx', 'confidence': 0.9, 'segment': [...]}
-        :type results: list
-        :return: list of ins. {'box': [x1, y1, x2, y2], 'label': 'xxx', 'confidence': 0.9, 'segment': [...]}
-        :rtype: list
-        """
-        return results
-
-    def save_infer_result(self, lbl_path: str, lbl_dict: dict, results: list):
+    @classmethod
+    def save_infer_result(cls, lbl_path: str, lbl_dict: dict, results: list):
         """保存推理结果为labelme格式标注文件
 
         ### result的标准格式定义
@@ -302,10 +347,13 @@ class InferBase(object):
         :rtype: dict
         """
         
+        img_file = Path(img_file)
         src_entity = self.load_entity(img_file)
         img_shape = src_entity.shape[:2]
         labelme_img_path = img_file.name  # 保存labelme格式的图片路径
-        labelme_lbl_path = self.dst_dir / (img_file.stem + '.json')  # 保存labelme格式的标签路径
+        sub_dir_save = self.dst_dir / img_file.parents[1].name  # 保存子图的路径
+        sub_dir_save.mkdir(exist_ok=True, parents=True)
+        labelme_lbl_path = sub_dir_save / (img_file.stem + '.json')  # 保存labelme格式的标签路径
         lbl_dict = self.get_defult_dict(img_path=labelme_img_path, img_shape=img_shape)
         src_box = [0, 0, src_entity.shape[1], src_entity.shape[0]]
 
@@ -317,8 +365,8 @@ class InferBase(object):
         self.save_infer_result(labelme_lbl_path, lbl_dict, results)
 
         # 保存软连接
-        if not (self.dst_dir / img_file.name).exists():
-            (self.dst_dir / img_file.name).symlink_to(img_file)
+        if not (sub_dir_save / img_file.name).exists():
+            (sub_dir_save / img_file.name).symlink_to(img_file)
         
         return results
 
@@ -362,7 +410,7 @@ class InferBase(object):
 
 
 class StatisticBase(object):
-    """加载 InferBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
+    """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
     推理结果文件夹和标注文件夹需要对应, 文件夹名称可以不一样.
 
     注: 全流程默认使用ultralytics的yolo模型, 若需要使用其他模型, 请重写以下方法:
@@ -379,6 +427,22 @@ class StatisticBase(object):
         use_ios (bool, optional): 是否使用IOS计算, defaults to True
         classes (str, optional): 类别文件路径, defaults to 'classes.txt'.
     
+    Example:
+        ```python
+        >>> statistic = StatisticBase(
+        ...     src_gt=['/data1/2024_datasets/infenrence/srcLabelTest-test/labels'],  # 标签文件路径
+        ...     src_pred=[infer.dst_dir],  # 预测文件路径
+        ...     dst_dir='/data1/2025_datasets/',  # 实验存放的根目录
+        ...     project='statistic',  # 实验名称, 程序会默认追加 'Statistic'
+        ...     use_ios=True,  # 是否使用IOS计算匹配程度
+        ...     classes='/data1/classes.txt'  # 类别文件路径, YOLO格式
+        ... )
+        >>> statistic(
+        ...     rendering=True,  # 是否渲染统计结果
+        ...     ios_thresh=0.5,
+        ...     iou_thresh=0.5
+        ... )
+        ```
     """
 
     def __init__(self, src_gt: list[str], src_pred: list[str], dst_dir: str, project: str = 'inference', use_ios: bool = True, classes: str = 'classes.txt'):
@@ -397,10 +461,10 @@ class StatisticBase(object):
         :param classes: 类别文件路径, defaults to 'classes.txt'
         :type classes: str, optional
         """
-        self.src_gt = src_gt
-        self.src_pred = src_pred
-        self.dst_dir = get_exp_dir(dst_dir, project + "statistic")
-        self.project = project + "statistic"
+        self.src_gt = path_list_valid(src_gt)
+        self.src_pred = path_list_valid(src_pred)
+        self.dst_dir = get_exp_dir(dst_dir, project + "Statistic")
+        self.project = project + "Statistic"
         self.use_ios = use_ios
         self.backgroud = False
         self.classes = self.get_classes(classes)
@@ -437,15 +501,7 @@ class StatisticBase(object):
         """
 
         # 统计所有的预测结果文件, 没有预测预测文件也会保存
-        if isinstance(self.src_pred, (str, PosixPath)):
-            datasets = [self.src_pred]
-        else:
-            datasets = self.src_pred
-
-        if isinstance(self.src_gt, (str, PosixPath)):
-            gt_datasets = [self.src_gt]
-        else:
-            gt_datasets = self.src_gt
+        datasets = self.src_pred
         
         # 统计预测文件数量
         total_num = 0
@@ -594,28 +650,119 @@ class StatisticBase(object):
         self.matrix.save_xlsx(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.xlsx")
 
 
+class SlidingWindowBase(object):
+
+    @staticmethod
+    def match_coord_(width_cut_point: list, height_cut_point: list):
+        """根据横纵坐标分割点, 计算分割的窗口坐标
+
+        :param width_cut_point: 横坐标分割点列表
+        :type width_cut_point: list | np.ndarray
+        :param height_cut_point: 纵坐标分割点列表
+        :type height_cut_point: list | np.ndarray
+        """
+        assert len(width_cut_point) > 1 and len(height_cut_point) > 1, "坐标分割点数量必须大于1"
+        width_cut_matrix = np.array(width_cut_point)
+        height_cut_matrix = np.array(height_cut_point)
+        width_cut_matrix = width_cut_matrix.reshape(1, -1)
+        height_cut_matrix = height_cut_matrix.reshape(-1, 1)
+        width_cut_matrix = width_cut_matrix.repeat(height_cut_matrix.shape[0], axis=0)
+        height_cut_matrix = height_cut_matrix.repeat(width_cut_matrix.shape[1], axis=1)
+        windows = np.zeros((width_cut_matrix.shape[0] - 1, height_cut_matrix.shape[1] - 1, 4), dtype=np.int64)
+        windows[:, :, 0] = width_cut_matrix[:-1, :-1]
+        windows[:, :, 1] = height_cut_matrix[:-1, :-1]
+        windows[:, :, 2] = width_cut_matrix[1:, 1:]
+        windows[:, :, 3] = height_cut_matrix[1:, 1:]
+        return windows
+    
+    @staticmethod
+    def match_coord(x1: list, x2: list, y1: list, y2: list):
+        """根据横纵坐标分割点, 计算分割的窗口坐标
+
+        :param x1: box的左上角x坐标
+        :type x1: list
+        :param x2: box的右下角x坐标
+        :type x2: list
+        :param y1: box的左上角y坐标
+        :type y1: list
+        :param y2: box的右下角y坐标
+        :type y2: list
+        :return: 窗口坐标
+        :rtype: np.ndarray
+        """
+        left = np.array(x1)
+        right = np.array(x2)
+        top = np.array(y1)
+        bottom = np.array(y2)
+
+        left_top_x = left.reshape(1, -1)
+        left_top_y = top.reshape(-1, 1)
+        right_bottom_x = right.reshape(1, -1)
+        right_bottom_y = bottom.reshape(-1, 1)
+
+        left_top_x = left_top_x.repeat(left_top_y.shape[0], axis=0)
+        left_top_y = left_top_y.repeat(left_top_x.shape[1], axis=1)
+        right_bottom_x = right_bottom_x.repeat(right_bottom_y.shape[0], axis=0)
+        right_bottom_y = right_bottom_y.repeat(right_bottom_x.shape[1], axis=1)
+
+        windows = np.zeros((left_top_x.shape[0], left_top_x.shape[1], 4), dtype=np.int64)
+        windows[:, :, 0] = left_top_x
+        windows[:, :, 1] = left_top_y
+        windows[:, :, 2] = right_bottom_x
+        windows[:, :, 3] = right_bottom_y
+
+        return windows
+
+
+class BoostSlidingWindow(SlidingWindowBase):
+    """步进滑窗: 滑动窗口类, 用于分割图片
+
+    Example:
+
+        ```python
+        >>> from pprint import pprint
+        >>> bsw = BoostSlidingWindow(640, overlap=0.2)
+        >>> windows = bsw((1080, 1920))
+        >>> pprint(windows)
+        ```
+
+    :param object: _description_
+    :type object: _type_
+    """
+
+    def __init__(self, window_size, overlap=0.2):
+        super().__init__()
+        assert 0 < overlap < 1, "overlap should be in (0, 1)"
+        self.window_size = window_size
+        self.overlap = overlap
+        self.stride = int(window_size * (1 - overlap))
+
+    def caculate_cut_point(self, size: int):
+        """计算分割点
+
+        :param size: 图片边长
+        :type size: int
+        """
+
+        left_size = [i for i in range(0, size, self.stride) if i + self.window_size <= size]
+        right_size = [i for i in range(self.window_size, size, self.stride) if i <= size]
+        remainder_size = size - right_size[-1]
+        if remainder_size > 10:
+            right_size.append(size)
+            left_size.append(size - self.window_size)
+        return left_size, right_size
+    
+    def __call__(self, img_size: tuple[int], *args, **kwargs):
+        left, right = self.caculate_cut_point(img_size[1])
+        top, bottom = self.caculate_cut_point(img_size[0])
+        windows = self.match_coord(left, right, top, bottom)
+        windows = windows.reshape(-1, 4)
+        windows = windows.tolist()
+        return windows
+
+
 if __name__ == '__main__':
-    cpu_num = 1
-    data_name = 'srcLabelTest-附属设施-标志牌-色标牌-正常-test1'
-    infer = InferBase(
-        src_dir=f'/data1/2024_datasets/UAV/无人机原始数据--归档数据/ancillaryFacilitiesCut/{data_name}/images',
-        dst_dir='/data1/2025_datasets/',
-        project=data_name
-    )
-    infer(
-        verbose=True, pattern='yolo', 
-        model_path='/data1/2024_project/UVA/uavApplication/uav_defect_identify/Pytorch/detect-signIndentify-GPU-uav.pt'
-    )
-    statistic = StatisticBase(
-        src_gt=[f'/data1/2024_datasets/UAV/无人机原始数据--归档数据/ancillaryFacilitiesCut/{data_name}/labels'],
-        src_pred=[infer.dst_dir],
-        dst_dir=f'/data1/2025_datasets/',
-        project=infer.dst_dir.name,
-        use_ios=False,
-        classes='/data1/2024_datasets/UAV/无人机原始数据--归档数据/ancillaryFacilities/classes.txt'
-    )
-    statistic(
-        rendering=True,
-        ios_thresh=0.5,
-        iou_thresh=0.5
-    )
+    from pprint import pprint
+    bsw = BoostSlidingWindow(640, overlap=0.2)
+    windows = bsw((1080, 1920))
+    pprint(windows)

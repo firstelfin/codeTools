@@ -36,7 +36,7 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
     """
 
     # 格式转换
-    if mode.lower() == "xyxy":
+    if mode.lower() == "xywh":
         box1_list = [[box[0], *xywh2xyxy(box[1:5])] for box in pred_boxes]
         box2_list = [[box[0], *xywh2xyxy(box[1:5])] for box in gt_boxes]
     else:
@@ -82,7 +82,7 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
                 update_items[box_cls][box[0]] += 1
                 continue
             if iou_matrix.shape[0] and iou_status_matrix[:, i].max():       # cbox匹配上，匹配不上cls的对象
-                pred_index = iou_matrix[:, i].argmax()
+                pred_index = pred_boxes[iou_matrix[:, i].argmax()][0]
                 update_items[box_cls][pred_index] += 1
             else:
                 update_items[box_cls][-1] += 1      # 未匹配上的对象, 预测为backgroud

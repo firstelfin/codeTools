@@ -79,6 +79,7 @@ class ConfusionMatrix:
         self.matrix_num_len = None
         if chinese:
             self.set_plt()
+        self.normal_matrix_status = False
     
     def xlabel_size(self):
         len_list = [len(v) for v in self.category]
@@ -195,6 +196,8 @@ class ConfusionMatrix:
         :type path: str
         """
         df = pd.DataFrame(self.matrix, columns=self.category, index=self.category)
+        if not self.normal_matrix_status:
+            self.get_normalize_matrix()
         df_normal = pd.DataFrame(self.normal_matrix, columns=self.category, index=self.category)
 
         gt_num = self.matrix.sum(axis=0)
@@ -221,5 +224,8 @@ class ConfusionMatrix:
     
     def get_normalize_matrix(self):
         """获取归一化的混淆矩阵"""
-        gt_num = self.matrix.sum(axis=0, keepdims=True).clip(min=1)
-        self.normal_matrix = self.matrix / gt_num
+        if not self.normal_matrix_status:
+            gt_num = self.matrix.sum(axis=0, keepdims=True).clip(min=1)
+            self.normal_matrix = self.matrix / gt_num
+            self.normal_matrix_status = True
+        return self.normal_matrix
