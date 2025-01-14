@@ -289,10 +289,13 @@ class CutImgFromLabel:
                 save_label_func(dst_label_path, save_label_bbox, [x1, y1, x2, y2], sub_dir_name)  
             else:
                 # cut mask
+                for j, ios in enumerate(ios_list):
+                    if ios >= 0.95:
+                        selected_status[j] = True
                 mask_label_bbox = [bbox_list[j] for j, v in enumerate(ios_list) if v > 0 and v < 0.95]
                 crop_img = self.add_cut_out(crop_img, mask_label_bbox, [x1, y1, x2, y2])
                 save_label_func(
-                    dst_label_path, [bbox_list[j] for j, v in enumerate(ios_list) if v > 0.95],
+                    dst_label_path, [bbox_list[j] for j, v in enumerate(ios_list) if v >= 0.95],
                     [x1, y1, x2, y2], sub_dir_name
                 )
             

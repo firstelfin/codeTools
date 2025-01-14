@@ -10,6 +10,7 @@ import math
 import warnings
 import cv2 as cv
 import numpy as np
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from pathlib import Path, PosixPath
 warnings.filterwarnings('ignore')
@@ -24,6 +25,12 @@ from codeUtils.labelOperation.saveLabel import save_labelme_label
 from codeUtils.matrix.confusionMatrix import ConfusionMatrix
 from codeUtils.matchFactory.bboxMatch import abs_box
 from codeUtils.inference.boxMatch import yolo_match
+from codeUtils.decorator.registry import Registry
+
+
+SliceRegistry = Registry("SliceRegistry")
+CombineRegistry = Registry("CombineRegistry")
+InferRegistry = Registry("InferRegistry")
 
 
 def get_exp_dir(dst_dir: str, project: str = 'inference') -> PosixPath:
@@ -61,6 +68,7 @@ def path_list_valid(path_dir):
     return datasets
 
 
+@InferRegistry
 class DetectBase(object):
     """模型推理基类, 指定模型, 设备, 推理参数等, 并提供预测接口
 
@@ -153,6 +161,7 @@ class DetectBase(object):
         return results
 
 
+@InferRegistry
 class PredictBase(DetectBase):
     """模型推理的基类, 推理结果保存到dst_dir / expName 文件夹下, 文件存在则添加编号, 编码从1开始
     推理基类包含以下功能：
@@ -652,8 +661,16 @@ class StatisticBase(object):
 
 class SlidingWindowBase(object):
 
+    """滑窗的基类, 用于计算滑窗产生的子窗口坐标.
+
+    Methods:
+        match_coord: 根据横纵坐标x1,y1,x2,y2分割点, 计算分割的窗口坐标
+        match_coord_by_split: 根据横纵坐标分割点, 计算分割的窗口坐标
+
+    """
+
     @staticmethod
-    def match_coord_(width_cut_point: list, height_cut_point: list):
+    def match_coord_by_split(width_cut_point: list, height_cut_point: list):
         """根据横纵坐标分割点, 计算分割的窗口坐标
 
         :param width_cut_point: 横坐标分割点列表
@@ -714,6 +731,7 @@ class SlidingWindowBase(object):
         return windows
 
 
+@SliceRegistry
 class BoostSlidingWindow(SlidingWindowBase):
     """步进滑窗: 滑动窗口类, 用于分割图片
 
@@ -726,11 +744,14 @@ class BoostSlidingWindow(SlidingWindowBase):
         >>> pprint(windows)
         ```
 
-    :param object: _description_
-    :type object: _type_
+    Methods:
+        - __init__: 初始化滑动窗口类, window_size: 窗口大小, overlap: 窗口重叠率
+        - caculate_cut_point: 根据图像的边长, 计算 X [Y] 的 X1,X2 [Y1,Y2] 分割点
+        - __call__: 调用滑动窗口类, 计算窗口坐标, 返回窗口坐标列表, box对象是一个(x1, y1, x2, y2)元组
+    
     """
 
-    def __init__(self, window_size, overlap=0.2):
+    def __init__(self, window_size, overlap=0.2, **kwargs):
         super().__init__()
         assert 0 < overlap < 1, "overlap should be in (0, 1)"
         self.window_size = window_size
@@ -746,20 +767,184 @@ class BoostSlidingWindow(SlidingWindowBase):
 
         left_size = [i for i in range(0, size, self.stride) if i + self.window_size <= size]
         right_size = [i for i in range(self.window_size, size, self.stride) if i <= size]
-        remainder_size = size - right_size[-1]
+        remainder_size = (size - right_size[-1]) if right_size else size
         if remainder_size > 10:
             right_size.append(size)
-            left_size.append(size - self.window_size)
+            left_size.append(max(0, (size - self.window_size)))
         return left_size, right_size
     
-    def __call__(self, img_size: tuple[int], *args, **kwargs):
+    def __call__(self, img_size: tuple[int], *args, **kwargs) -> list:
         left, right = self.caculate_cut_point(img_size[1])
         top, bottom = self.caculate_cut_point(img_size[0])
         windows = self.match_coord(left, right, top, bottom)
         windows = windows.reshape(-1, 4)
-        windows = windows.tolist()
+        windows = [tuple(box) for box in windows.tolist()]
         return windows
 
+
+@CombineRegistry
+class MergeSlidingBase(object):
+    """预测合并基类
+
+    原理：
+        -> 1. *_merge: 搜索需要合并的对象, 接收标准预测格式list[dict], TODO: 适配numpy数据格式;
+              返回合并的映射字典, 格式为{原box索引: 待合并的box索引}
+        -> 2. combine: 根据映射字典和预测对象更新预测对象
+
+    """
+
+    @staticmethod
+    def combine(pred_boxes: list[dict], merge_dict: dict, **kwargs):
+        """合并预测对象
+
+        :param pred_boxes: 预测对象列表
+        :type pred_boxes: list[dict]
+        :param merge_dict: 合并映射字典
+        :type merge_dict: dict
+        """
+        results = []
+        for src_idx, combine_idx_list in merge_dict.items():
+            target_box = pred_boxes[src_idx]
+            if len(combine_idx_list):
+                combine_boxes = np.array(
+                    [[pred_boxes[i]['box'] for i in combine_idx_list], [target_box['box']]]
+                ).reshape(-1, 2)
+                combine_box = combine_boxes.min(axis=0).tolist() + combine_boxes.max(axis=0).tolist()
+                results.append({
+                    "name": target_box['name'],
+                    "code": target_box.get('code', -1),
+                    "box": combine_box,
+                    "confidence": target_box.get('confidence', 0.4),
+                })
+            else:
+                results.append(target_box)
+        return results
+
+    def sahi_merge(self, pred_boxes: list[dict], mode: str = None, threshold: float = 0.5, greedy: bool = False, **kwargs):
+        """sahi合并
+        参考: https://github.com/obss/sahi/blob/main/sahi/postprocess/combine.py
+
+        box object of pred_boxes:
+        ```python
+        >>> box = {
+        ...     "name": "person",
+        ...     "code": 72,
+        ...     "box": [x1, y1, x2, y2],
+        ...     "confidence": 0.89,
+        ...     "segment": [x1, y1, x2, y2, ..., xn, yn],
+        ... }
+        ```
+
+        greedy:
+            - True: 贪婪合并, 循环所有对象box, box与剩余box的iou大于等于threshold时, 合并为一个box
+            - False: 非贪婪合并, 递归合并所有满足阈值的box, 直到集和内的box和其他box都不能通过匹配阈值
+        
+        :param pred_boxes: DetectBase预测对象列表
+        :type pred_boxes: list[dict]
+        :param mode: 合并模式, 可选值: "iou", "ios"
+        :type mode: str
+        :param threshold: 合并阈值, 合并两个box的iou或ios大于等于threshold时, 合并为一个box
+        :type threshold: float
+        :param greedy: 是否贪婪合并, 即是否合并所有满足阈值的box, 贪婪时输出的框比较多, 非贪婪时会递归合并
+        :type greedy: bool, optional, default=False
+        """
+
+        keep_to_merge_list = {}
+        hit_dict = {}
+        if mode is None:
+            mode = "ios"
+        mode = mode.lower()
+        assert mode in ["iou", "ios"], "mode should be in ['iou', 'ios']"
+        assert 0 <= threshold <= 1, "threshold should be in [0, 1]"
+
+        pred_object = np.array([
+            [*box['box'], box['confidence']] for box in pred_boxes
+        ], dtype=np.float32)
+        total_num = len(pred_object)
+        if not total_num:
+            return keep_to_merge_list
+        
+        scores = pred_object[:, 4]
+        areas = (pred_object[:, 2]-pred_object[:, 0]) * (pred_object[:, 3]-pred_object[:, 1])
+        order = scores.argsort() if greedy else scores.argsort()[::-1]  # Sort in descending order of confidence
+        src_order = deepcopy(order) if not greedy else None
+        
+        search_idx = 0
+        while len(order) > 0:
+            idx = order[-1] if greedy else search_idx  # greedy=False时，idx是int
+            order = order[:-1] if greedy else src_order[src_order!= idx]
+            search_idx += 1
+            if len(order) == 0 or search_idx > total_num:
+                # 没有剩余box就退出循环
+                keep_to_merge_list[idx.tolist()] = []
+                break
+
+            # 根据索引选择剩余的box对象
+            rx1, ry1, rx2, ry2, _ = pred_object[order, :5]
+            ix1 = np.maximum(pred_object[idx, 0], rx1)
+            iy1 = np.maximum(pred_object[idx, 1], ry1)
+            ix2 = np.minimum(pred_object[idx, 2], rx2)
+            iy2 = np.minimum(pred_object[idx, 3], ry2)
+
+            # 计算交集面积
+            w = ix2 - ix1
+            h = iy2 - iy1
+            w = np.maximum(0.0, w)
+            h = np.maximum(0.0, h)
+            inter = w * h
+
+            rem_areas = areas[order]
+
+            # 根据模式选择匹配方式
+            if mode == "iou":
+                ious = inter / (areas[idx] + rem_areas - inter)
+            elif mode == "ios":
+                smaller = np.minimum(areas[idx], rem_areas)
+                ious = inter / smaller
+
+            # 选择满足阈值的box
+            mask = ious < threshold
+            matched_box_idx = order[(mask == False).nonzero()[0]]
+            
+            
+            if greedy:
+                # 贪婪模式, 递归合并
+                unmatched_box_idx = order[(mask == True).nonzero()[0]]
+                order = unmatched_box_idx[scores[unmatched_box_idx].argsort()]
+                keep_to_merge_list[idx.tolist()] = matched_box_idx.tolist()
+            elif idx not in hit_dict:
+                # 非贪婪模式
+                keep_to_merge_list[idx] = []
+                for matched_box_ind in matched_box_idx.tolist():
+                    if matched_box_ind not in hit_dict:
+                        keep_to_merge_list[idx].append(matched_box_ind)
+                        hit_dict[matched_box_ind] = idx
+            else:
+                # 非贪婪模式, 合并
+                keep = hit_dict[idx]
+                for matched_box_ind in matched_box_idx.tolist():
+                    if matched_box_ind not in keep_to_merge_list and matched_box_ind not in hit_dict:
+                        keep_to_merge_list[keep].append(matched_box_ind)
+                        hit_dict[matched_box_ind] = keep
+
+        return keep_to_merge_list
+
+    def merge(self, pred_boxes: list[dict], **kwargs):
+        """合并预测对象
+
+        kwargs:
+            - mode: 合并模式, 可选值: "iou", "ios"
+            - threshold: 合并阈值, 合并两个box的iou或ios大于等于threshold时, 合并为一个box
+            - greedy: 是否贪婪合并, 即是否合并所有满足阈值的box, 贪婪时输出的框比较多, 非贪婪时会递归合并
+
+        :param pred_boxes: 预测对象列表
+        :type pred_boxes: list[dict]
+        :return: _description_
+        :rtype: _type_
+        """
+        keep_to_merge_list = self.sahi_merge(pred_boxes, **kwargs)
+        new_pred_boxes = self.combine(pred_boxes, keep_to_merge_list, **kwargs)
+        return new_pred_boxes
 
 if __name__ == '__main__':
     from pprint import pprint

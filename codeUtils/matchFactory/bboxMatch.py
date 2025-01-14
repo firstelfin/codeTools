@@ -101,12 +101,12 @@ def iou_box(box1: list, box2: list) -> float:
     return iou
 
 
-def rel_box(box1: list, box2: list, trunc: bool=False) -> list:
+def rel_box(box1: list, box2: list, trunc: bool=True) -> list:
     """生成box2相对于box1的相对坐标框
 
     :param list box1: 边框左上右下角坐标
     :param list box2: 边框左上右下角坐标
-    :param bool trunc: 是否截断超出边界的坐标, defaults to False
+    :param bool trunc: 是否截断超出边界的坐标, defaults to True
     :return list: 相对坐标框
     """
     
