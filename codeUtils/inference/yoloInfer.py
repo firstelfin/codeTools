@@ -12,7 +12,22 @@ from codeUtils.inference.base import SliceRegistry, CombineRegistry, InferRegist
 
 
 @InferRegistry
-class YoloInfer(DetectBase):
+class YoloDetectInfer(DetectBase):
+    """YOLO检测推理接口
+
+    Example:
+        >>> from codeUtils.inference.yoloInfer import YoloDetectInfer
+        >>> yolo_infer = YoloDetectInfer(
+        ...     model=model_path, 
+        ...     device='cuda:0', 
+        ...     conf=[0.1, 0.2, 0.3], 
+        ...     nms_iou=0.65, 
+        ...     window_size=640, 
+        ...     overlap=0.5, 
+        ...     slice='BoostSlidingWindow', 
+        ...     combine='MergeSlidingBase'
+        ... )
+    """
 
     def __init__(self, model: str, device: str, conf: list, nms_iou: float, *args, **kwargs):
         """初始化yolo模型推理类
@@ -34,13 +49,14 @@ class YoloInfer(DetectBase):
         :param combine: 合并模式
         :type combine: list
         """
-        super(YoloInfer, self).__init__(model, device, conf, nms_iou, *args, **kwargs)
+        super(YoloDetectInfer, self).__init__(model, device, conf, nms_iou, *args, **kwargs)
         self.slice_mode = kwargs.get('slice', None)  # type: list
         self.combine_mode = kwargs.get('combine', None)  # type: list
         self.kwargs = kwargs
         self.init_slice_combine()
 
     def init_slice_combine(self):
+        """初始化滑窗与合并模式: 将滑窗和合并func注册到全局列表中, 方便重复使用"""
         m_list = self.slice_mode if isinstance(self.slice_mode, list) else [self.slice_mode]
         slice_class = [SliceRegistry[m] for m in m_list]
         self.slice_obj = [sc(**self.kwargs) for sc in slice_class]
@@ -49,9 +65,10 @@ class YoloInfer(DetectBase):
         combine_class = [CombineRegistry[m] for m in com_list]
         self.combine_obj = [cc(**self.kwargs) for cc in combine_class]
 
-    def split(self, src_box):
+    def split(self, src_box) -> list[tuple]:
         # 使用步进滑窗, 并合并原始图片的边界框
-        all_windows = set(tuple(src_box))
+        all_windows = set()
+        all_windows.add(tuple(src_box))
         a1, b1, a2, b2 = src_box
         img_size = (b2 - b1, a2 - a1)
         for m in self.slice_obj:

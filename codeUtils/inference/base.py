@@ -18,6 +18,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.tools.font_config import colorstr
+from codeUtils.tools.torchTools import torch_empty_cache
 from codeUtils.tools.tqdm_conf import cpu_num, BATCH_KEY, START_KEY, END_KEY, TPP, FPP, TPG, TNG, GTN, PRN
 from codeUtils.__base__ import strPath
 from codeUtils.labelOperation.readLabel import read_voc, read_yolo, read_txt, parser_json
@@ -135,7 +136,14 @@ class DetectBase(object):
         
         all_sub_preds = []
         all_sub_imgs = [src_img[box[1]:box[3], box[0]:box[2]] for box in windows]
-        results = self.model(all_sub_imgs, verbose=False, conf=self.infer_conf, iou=self.nms_iou)
+        empty_cache = kwargs.get('empty_cache', None)
+        if empty_cache is None:
+            results = self.model(all_sub_imgs, verbose=False, conf=self.infer_conf, iou=self.nms_iou)
+        elif isinstance(empty_cache, int):
+            results = []
+            for sub_img in all_sub_imgs:
+                results.append(self.model(sub_img, verbose=False, conf=self.infer_conf, iou=self.nms_iou)[0])
+                torch_empty_cache(empty_cache)
 
         for i, result in enumerate(results):
             boxes = result.boxes.xyxy.cpu().numpy().tolist()
@@ -791,7 +799,13 @@ class MergeSlidingBase(object):
               返回合并的映射字典, 格式为{原box索引: 待合并的box索引}
         -> 2. combine: 根据映射字典和预测对象更新预测对象
 
+    :param not_combine_ids:不需要进行合并的类别编码列表, 默认为空
+    :type not_combine_ids: list, optional, default=False
     """
+
+    def __init__(self, not_combine_ids: list = None, *args, **kwargs):
+        self.not_combine_ids = not_combine_ids if not_combine_ids else []
+
 
     @staticmethod
     def combine(pred_boxes: list[dict], merge_dict: dict, **kwargs):
@@ -807,7 +821,7 @@ class MergeSlidingBase(object):
             target_box = pred_boxes[src_idx]
             if len(combine_idx_list):
                 combine_boxes = np.array(
-                    [[pred_boxes[i]['box'] for i in combine_idx_list], [target_box['box']]]
+                    [[pred_boxes[i]['box'] for i in combine_idx_list] + [target_box['box']]]
                 ).reshape(-1, 2)
                 combine_box = combine_boxes.min(axis=0).tolist() + combine_boxes.max(axis=0).tolist()
                 results.append({
@@ -820,7 +834,7 @@ class MergeSlidingBase(object):
                 results.append(target_box)
         return results
 
-    def sahi_merge(self, pred_boxes: list[dict], mode: str = None, threshold: float = 0.5, greedy: bool = False, **kwargs):
+    def sahi_merge(self, pred_boxes: list[dict], mode: str = None, threshold: float = 0.5, greedy: bool = True, **kwargs):
         """sahi合并
         参考: https://github.com/obss/sahi/blob/main/sahi/postprocess/combine.py
 
@@ -836,8 +850,8 @@ class MergeSlidingBase(object):
         ```
 
         greedy:
-            - True: 贪婪合并, 循环所有对象box, box与剩余box的iou大于等于threshold时, 合并为一个box
-            - False: 非贪婪合并, 递归合并所有满足阈值的box, 直到集和内的box和其他box都不能通过匹配阈值
+            - True: 贪婪合并, 递归合并所有满足阈值的box, 直到集和内的box和其他box都不能通过匹配阈值
+            - False: 非贪婪合并, 循环所有对象box, box与剩余box的iou大于等于threshold时, 合并为一个box
         
         :param pred_boxes: DetectBase预测对象列表
         :type pred_boxes: list[dict]
@@ -846,7 +860,7 @@ class MergeSlidingBase(object):
         :param threshold: 合并阈值, 合并两个box的iou或ios大于等于threshold时, 合并为一个box
         :type threshold: float
         :param greedy: 是否贪婪合并, 即是否合并所有满足阈值的box, 贪婪时输出的框比较多, 非贪婪时会递归合并
-        :type greedy: bool, optional, default=False
+        :type greedy: bool, optional, default=True
         """
 
         keep_to_merge_list = {}
@@ -866,21 +880,28 @@ class MergeSlidingBase(object):
         
         scores = pred_object[:, 4]
         areas = (pred_object[:, 2]-pred_object[:, 0]) * (pred_object[:, 3]-pred_object[:, 1])
-        order = scores.argsort() if greedy else scores.argsort()[::-1]  # Sort in descending order of confidence
+        order = scores.argsort()[::-1]  # Sort in descending order of confidence
         src_order = deepcopy(order) if not greedy else None
         
         search_idx = 0
         while len(order) > 0:
+            if search_idx == total_num:
+                break
+
             idx = order[-1] if greedy else search_idx  # greedy=False时，idx是int
             order = order[:-1] if greedy else src_order[src_order!= idx]
             search_idx += 1
-            if len(order) == 0 or search_idx > total_num:
+            if len(order) == 0:
                 # 没有剩余box就退出循环
-                keep_to_merge_list[idx.tolist()] = []
+                keep_to_merge_list[idx.tolist() if greedy else idx] = []
                 break
-
+            
             # 根据索引选择剩余的box对象
-            rx1, ry1, rx2, ry2, _ = pred_object[order, :5]
+            rx1 = pred_object[order, 0]
+            ry1 = pred_object[order, 1]
+            rx2 = pred_object[order, 2]
+            ry2 = pred_object[order, 3]
+
             ix1 = np.maximum(pred_object[idx, 0], rx1)
             iy1 = np.maximum(pred_object[idx, 1], ry1)
             ix2 = np.minimum(pred_object[idx, 2], rx2)
@@ -929,7 +950,7 @@ class MergeSlidingBase(object):
 
         return keep_to_merge_list
 
-    def merge(self, pred_boxes: list[dict], **kwargs):
+    def merge(self, pred_boxes: list[dict], **kwargs) -> list[dict]:
         """合并预测对象
 
         kwargs:
@@ -939,12 +960,30 @@ class MergeSlidingBase(object):
 
         :param pred_boxes: 预测对象列表
         :type pred_boxes: list[dict]
-        :return: _description_
-        :rtype: _type_
+        :return: 合并后的预测对象列表
+        :rtype: list[dict]
         """
-        keep_to_merge_list = self.sahi_merge(pred_boxes, **kwargs)
-        new_pred_boxes = self.combine(pred_boxes, keep_to_merge_list, **kwargs)
-        return new_pred_boxes
+        # 按类别存储预测到字典
+        pred_dict = {}
+        for box in pred_boxes:
+            code = int(box.get('code', -1))
+            if code not in pred_dict:
+                pred_dict[code] = []
+            pred_dict[code].append(box)
+        
+        results = []
+        for class_id, boxes_list in pred_dict.items():
+            if class_id in self.not_combine_ids:
+                results.extend(boxes_list)
+                continue
+            keep_to_merge_list = self.sahi_merge(boxes_list, **kwargs)
+            new_pred_boxes = self.combine(boxes_list, keep_to_merge_list, **kwargs)
+            results.extend(new_pred_boxes)
+
+        # keep_to_merge_list = self.sahi_merge(pred_boxes, **kwargs)
+        # new_pred_boxes = self.combine(pred_boxes, keep_to_merge_list, **kwargs)
+        return results
+
 
 if __name__ == '__main__':
     from pprint import pprint

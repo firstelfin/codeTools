@@ -5,4 +5,4 @@
 # @desc: 深度学习模型推理工具包
 
 from codeUtils.inference.base import *
-from codeUtils.inference.yoloInfer import YoloInfer
+from codeUtils.inference.yoloInfer import YoloDetectInfer
