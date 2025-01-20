@@ -182,7 +182,8 @@ class CutImgFromLabel:
         
         save_yolo_label(label_file, new_bbox)
 
-    def padding_cut_bbox(self, box: list[int], img_shape: tuple, target_size: int):
+    @staticmethod
+    def padding_cut_bbox(box: list[int], img_shape: tuple, target_size: int):
         """扩充裁剪区域, 保证bbox在图片内, 并按比例缩放到~target_size大小
 
         :param list[int] box: 标注实例的正外接矩形, list of [x1, y1, x2, y2]

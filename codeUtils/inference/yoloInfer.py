@@ -50,8 +50,8 @@ class YoloDetectInfer(DetectBase):
         :type combine: list
         """
         super(YoloDetectInfer, self).__init__(model, device, conf, nms_iou, *args, **kwargs)
-        self.slice_mode = kwargs.get('slice', None)  # type: list
-        self.combine_mode = kwargs.get('combine', None)  # type: list
+        self.slice_mode = kwargs.get('slice', [])  # type: list
+        self.combine_mode = kwargs.get('combine', [])  # type: list
         self.kwargs = kwargs
         self.init_slice_combine()
 
