@@ -41,7 +41,7 @@ class YoloLabelExclude(object):
         >>> yolo_label_exclude('path/to/save_total_datasets', cp_img=True)
     
     Cli:
-        >>> elfin yoloLabelExclude --include_classes 2 4 8 --data_yaml path/to/old.yaml --dst_dir path/to/save_total_datasets --cp_img
+        >>> elfin yoloLabelExclude  2 4 8  path/to/old.yaml --dst_dir path/to/save_total_datasets --cp_img
     """
 
     def __init__(self, include_classes: list[int], data_yaml: str):
@@ -87,8 +87,8 @@ class YoloLabelExclude(object):
             new_yaml_data['path'] = str(save_dir)
         
         # 保存新yaml文件
-        with open(new_yaml_file, 'w') as f:
-            yaml.dump(new_yaml_data, f)
+        with open(new_yaml_file, 'w', encoding='utf-8') as f:
+            yaml.dump(new_yaml_data, f, allow_unicode=True)
     
     def label_exclude(
             self, lbl_path: str, img_save_dir: str = None, 
