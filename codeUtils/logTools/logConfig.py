@@ -54,16 +54,16 @@ def setup_logger():
 
         "formatters": {
             "default": {
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(process)d] - [%(thread)d] - %(message)s',
+                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
                 "datefmt": '%Y-%m-%d %H:%M:%S'
             },
             "access": {
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(process)d] - [%(thread)d] - %(message)s',
+                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
                 "datefmt": '%Y-%m-%d %H:%M:%S'
             },
             "custom": {
                 '()': MyFormatter,
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(process)d] - [%(thread)d] - %(message)s',
+                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
                 "datefmt": '%Y-%m-%d %H:%M:%S'
             }
         },
