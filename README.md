@@ -48,3 +48,13 @@ twine upload dist/*
 ### 配置文件生成
 
 - [X] 完成voc2yoloClasses的开发：使用 `elfin voc2yoloClasses -h`查看帮助;
+
+## 本地快速安装
+
+```shell
+rm -rf build
+pip uninstall elfinCodeUtils -y
+python -m build -sw -nx
+pip install dist/elfinCodeUtils-0.1.10.2-py3-none-any.whl
+```
+

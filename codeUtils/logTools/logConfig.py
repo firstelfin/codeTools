@@ -8,7 +8,51 @@
 @Desc    :   None
 '''
 
+import sys
 import logging
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
+from loguru import logger
+
+
+LOG_COLORS={
+    'DEBUG': 'cyan',
+    'INFO': 'green',
+    'WARNING': 'yellow',
+    'ERROR': 'red',
+    'CRITICAL': 'red,bg_white',
+}
+LOG_FORMAT = "%(asctime)s.%(msecs)03d | %(levelname)-8s | [%(thread)d] - %(name)s - %(message)s"
+LOG_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+
+def setup_loguru(log_name="app.log", log_level="INFO", rotation="1 week", retention="30 days", file_handler=True, enqueue=False, **kwargs):
+    """Setup loguru logging configuration.
+
+    :param str log_name: log file name, defaults to "app.log"
+    :param str log_level: log level, defaults to "INFO"
+    :param str rotation: rotation time, defaults to "1 week"
+    :param str retention: retention time, defaults to "30 days"
+    :param bool file_handler: whether to use file handler, defaults to True
+    :param bool enqueue: whether to use enqueue, defaults to False
+    """
+    loguru_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | [<cyan>{thread}</cyan>] - <yellow>{name}</yellow> - <level>{message}</level>"
+
+    log_dir = Path(log_name).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format=loguru_format,
+        colorize=True,
+        level="INFO"
+    )
+    if file_handler:
+        logger.add(
+            log_name, rotation=rotation, retention=retention, 
+            level=log_level.upper(), format=loguru_format, enqueue=enqueue
+        )
 
 
 class MyFormatter(logging.Formatter):
@@ -21,6 +65,8 @@ class MyFormatter(logging.Formatter):
         'RED': '\033[31m',
         'YELLOW': '\033[33m',
         'BLUE': '\033[34m',
+        'WHITE': '\033[37m',
+        'RED,BG_WHITE': '\033[37m\033[41m'
     }
 
     def __init__(self, fmt=None, datefmt=None):
@@ -34,19 +80,35 @@ class MyFormatter(logging.Formatter):
         timestamp = self.formatTime(record, self.datefmt) + f".{int(record.msecs):03d}"
         colored_timestamp = f"{self.COLORS['GREEN']}{timestamp}{self.COLORS['RESET']}"
         # Apply bold style to levelname
-        bold_levelname = f"{self.COLORS['BOLD']}{record.levelname}{self.COLORS['RESET']}"
+        level_color = self.COLORS[LOG_COLORS.get(record.levelname, 'WHITE').upper()]
+        bold_levelname = f"{self.COLORS['BOLD']}{level_color}{record.levelname}{self.COLORS['RESET']}"
         # 设置name为黄色
         yellow_name = f"{self.COLORS['YELLOW']}{record.name}{self.COLORS['RESET']}"
+        # 设置thread为蓝色
+        blue_thread = f"{self.COLORS['BLUE']}{record.thread}{self.COLORS['RESET']}"
+        # 设置message level_color
+        color_msg = f"{self.COLORS['BOLD']}{level_color}{record.message}{self.COLORS['RESET']}"
         
         # Replace the levelname in the original message
         formatted_message = original_message.replace(record.levelname, bold_levelname)
         formatted_message = formatted_message.replace(timestamp, colored_timestamp)
         formatted_message = formatted_message.replace(record.name, yellow_name)
+        formatted_message = formatted_message.replace(str(record.thread), blue_thread)
+        formatted_message = formatted_message.replace(record.message, color_msg)
 
         return formatted_message
 
 
-def setup_logger():
+def setup_logger(log_name="app.log", log_level="INFO", backup_count=4, file_handler=True, **kwargs):
+    """Setup logging configuration.
+
+    :param str log_name: log file name, defaults to "app.log"
+    :param str log_level: log level, defaults to "INFO"
+    :param int backup_count: backup count for log file, defaults to 4
+    :param bool file_handler: whether to use file handler, defaults to True
+    """
+    log_dir = Path(log_name).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     config = {
         "version": 1,
@@ -54,17 +116,21 @@ def setup_logger():
 
         "formatters": {
             "default": {
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
-                "datefmt": '%Y-%m-%d %H:%M:%S'
+                "format": LOG_FORMAT,
+                "datefmt": LOG_TIME_FORMAT
             },
             "access": {
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
-                "datefmt": '%Y-%m-%d %H:%M:%S'
+                "format": LOG_FORMAT,
+                "datefmt": LOG_TIME_FORMAT
             },
             "custom": {
-                '()': MyFormatter,
-                "format": '%(asctime)s.%(msecs)03d | %(levelname)-7s  | %(name)s - [%(thread)d] - %(message)s',
-                "datefmt": '%Y-%m-%d %H:%M:%S'
+                "()": MyFormatter,
+                "format": LOG_FORMAT,
+                "datefmt": LOG_TIME_FORMAT,
+            },
+            "file": {
+                "format": LOG_FORMAT,
+                "datefmt": LOG_TIME_FORMAT
             }
         },
         "handlers": {
@@ -73,26 +139,67 @@ def setup_logger():
                 "formatter": "custom",
                 "level": "INFO",
                 "stream": "ext://sys.stdout"
+            },
+            "file": {
+                "()": TimedRotatingFileHandler,  # 使用 TimedRotatingFileHandler
+                "formatter": "file",  # 使用文件格式
+                "level": log_level.upper(),
+                "filename": log_name,  # 基础日志文件名
+                "when": "W0",  # 每周一分割日志文件
+                "interval": 1,  # 每周一个文件
+                "backupCount": backup_count,  # 保留最近 backup_count 个文件
+                "encoding": "utf-8"
             }
         },
 
         "loggers": {
             "uvicorn": {
-                "handlers": ["console"],
+                "handlers": ["console", "file"] if file_handler else ["console"],
                 "level": "INFO",
                 "propagate": False
             },
             "uvicorn.access": {
-                "handlers": ["console"],
+                "handlers": ["console","file"] if file_handler else ["console"],
                 "level": "INFO",
                 "propagate": False
             }
         },
         "root": {
-            "handlers": ["console"],
+            "handlers": ["console", "file"] if file_handler else ["console"],
             "level": "INFO"
         }
     }
 
     # Apply logging configuration
     logging.config.dictConfig(config)
+
+
+def setup_log(**kwargs):
+    """Setup logging configuration. kwargs: dict of log configuration.
+
+    :param loguru: bool, whether to use loguru, default is False
+    :type loguru: bool
+    :param logging: bool, whether to use logging, default is True
+    :type logging: bool
+    :param log_name: str, log file name, default is "app.log"
+    :type log_name: str
+    :param log_level: str, log level, default is "INFO"
+    :type log_level: str
+    :param backup_count: int, backup count for log file, default is 4
+    :type backup_count: int
+    :param file_handler: bool, whether to use file handler, default is True
+    :type file_handler: bool
+    :param rotation: str, log rotation, default is "1 week"
+    :type rotation: str
+    :param retention: str, log retention, default is "30 days"
+    :type retention: str
+    :param enqueue: bool, whether to use enqueue, default is False
+    :type enqueue: bool
+    :return: None
+    :rtype: NoneType
+    """
+    if kwargs.get("loguru", None):
+        setup_loguru(**kwargs)
+    if kwargs.get("logging", None):
+        setup_logger(**kwargs)
+
