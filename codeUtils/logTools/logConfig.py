@@ -23,14 +23,14 @@ LOG_COLORS={
     'ERROR': 'red',
     'CRITICAL': 'white,bg red',
 }
-LOG_FORMAT = "%(asctime)s.%(msecs)03d | %(levelname)-8s | [%(thread)d] - %(name)s - %(message)s"
+LOG_FORMAT = "%(asctime)s.%(msecs)03d | %(levelname)-8s | [%(process)d] - %(name)s - %(message)s"
 LOG_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 
-def setup_loguru(log_name="app.log", log_level="INFO", rotation="1 week", retention="30 days", file_handler=True, enqueue=False, **kwargs):
+def setup_loguru(log_name="LOG/app.log", log_level="INFO", rotation="1 week", retention="30 days", file_handler=True, enqueue=False, **kwargs):
     """Setup loguru logging configuration.
 
-    :param str log_name: log file name, defaults to "app.log"
+    :param str log_name: log file name, defaults to "LOG/app.log"
     :param str log_level: log level, defaults to "INFO"
     :param str rotation: rotation time, defaults to "1 week"
     :param str retention: retention time, defaults to "30 days"
@@ -39,7 +39,7 @@ def setup_loguru(log_name="app.log", log_level="INFO", rotation="1 week", retent
     """
     from loguru import logger
 
-    loguru_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | [<blue>{thread}</blue>] - <yellow>{name}</yellow> - <level>{message}</level>"
+    loguru_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | [<blue>{process}</blue>] - <yellow>{name}</yellow> - <level>{message}</level>"
 
     log_dir = Path(log_name).parent
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -91,8 +91,8 @@ class MyFormatter(logging.Formatter):
         bold_levelname = f"{self.COLORS['BOLD']}{level_color}{record.levelname}{self.COLORS['RESET']}"
         # 设置name为黄色
         yellow_name = f"{self.COLORS['YELLOW']}{record.name}{self.COLORS['RESET']}"
-        # 设置thread为蓝色
-        blue_thread = f"{self.COLORS['BLUE']}{record.thread}{self.COLORS['RESET']}"
+        # 设置process为蓝色
+        blue_process = f"{self.COLORS['BLUE']}{record.process}{self.COLORS['RESET']}"
         # 设置message level_color
         color_msg = f"{self.COLORS['BOLD']}{level_color}{record.message}{self.COLORS['RESET']}"
         
@@ -100,27 +100,22 @@ class MyFormatter(logging.Formatter):
         formatted_message = original_message.replace(record.levelname, bold_levelname)
         formatted_message = formatted_message.replace(timestamp, colored_timestamp)
         formatted_message = formatted_message.replace(record.name, yellow_name)
-        formatted_message = formatted_message.replace(str(record.thread), blue_thread)
+        formatted_message = formatted_message.replace(str(record.process), blue_process)
         formatted_message = formatted_message.replace(record.message, color_msg)
 
         return formatted_message
 
 
-def setup_logger(log_name="app.log", log_level="INFO", backup_count=4, file_handler=True, **kwargs):
+def setup_logger(log_name="LOG/app.log", log_level="INFO", backup_count=4, file_handler=True, **kwargs):
     """Setup logging configuration.
 
-    :param str log_name: log file name, defaults to "app.log"
+    :param str log_name: log file name, defaults to "LOG/app.log"
     :param str log_level: log level, defaults to "INFO"
     :param int backup_count: backup count for log file, defaults to 4
     :param bool file_handler: whether to use file handler, defaults to True
     """
     log_dir = Path(log_name).parent
     log_dir.mkdir(parents=True, exist_ok=True)
-
-    logging.root.handlers.clear()
-    for log_handler in logging.Logger.manager.loggerDict.values():
-        if isinstance(log_handler, logging.Logger):
-            log_handler.handlers.clear()
 
     config = {
         "version": 1,
@@ -166,12 +161,12 @@ def setup_logger(log_name="app.log", log_level="INFO", backup_count=4, file_hand
 
         "loggers": {
             "uvicorn": {
-                "handlers": ["console", "file"] if file_handler else ["console"],
+                "handlers": ["console"],
                 "level": "INFO",
                 "propagate": False
             },
             "uvicorn.access": {
-                "handlers": ["console","file"] if file_handler else ["console"],
+                "handlers": ["file"] if file_handler else ["console"],
                 "level": "INFO",
                 "propagate": False
             }
