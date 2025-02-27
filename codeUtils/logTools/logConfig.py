@@ -10,17 +10,18 @@
 
 import sys
 import logging
+import logging.config as logging_config
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from loguru import logger
+
 
 
 LOG_COLORS={
     'DEBUG': 'cyan',
-    'INFO': 'green',
+    'INFO': 'white',
     'WARNING': 'yellow',
     'ERROR': 'red',
-    'CRITICAL': 'red,bg_white',
+    'CRITICAL': 'white,bg red',
 }
 LOG_FORMAT = "%(asctime)s.%(msecs)03d | %(levelname)-8s | [%(thread)d] - %(name)s - %(message)s"
 LOG_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -36,7 +37,9 @@ def setup_loguru(log_name="app.log", log_level="INFO", rotation="1 week", retent
     :param bool file_handler: whether to use file handler, defaults to True
     :param bool enqueue: whether to use enqueue, defaults to False
     """
-    loguru_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | [<cyan>{thread}</cyan>] - <yellow>{name}</yellow> - <level>{message}</level>"
+    from loguru import logger
+
+    loguru_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | [<blue>{thread}</blue>] - <yellow>{name}</yellow> - <level>{message}</level>"
 
     log_dir = Path(log_name).parent
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -54,6 +57,10 @@ def setup_loguru(log_name="app.log", log_level="INFO", rotation="1 week", retent
             level=log_level.upper(), format=loguru_format, enqueue=enqueue
         )
 
+    # 设置level颜色
+    for level, level_color in LOG_COLORS.items():
+        logger.level(level, color=f"<{level_color.replace(',', '><')}><bold>")
+
 
 class MyFormatter(logging.Formatter):
     # ANSI escape sequences for bold style
@@ -66,7 +73,7 @@ class MyFormatter(logging.Formatter):
         'YELLOW': '\033[33m',
         'BLUE': '\033[34m',
         'WHITE': '\033[37m',
-        'RED,BG_WHITE': '\033[37m\033[41m'
+        'BG RED': '\033[41m'
     }
 
     def __init__(self, fmt=None, datefmt=None):
@@ -80,7 +87,7 @@ class MyFormatter(logging.Formatter):
         timestamp = self.formatTime(record, self.datefmt) + f".{int(record.msecs):03d}"
         colored_timestamp = f"{self.COLORS['GREEN']}{timestamp}{self.COLORS['RESET']}"
         # Apply bold style to levelname
-        level_color = self.COLORS[LOG_COLORS.get(record.levelname, 'WHITE').upper()]
+        level_color = "".join([self.COLORS[c.upper()] for c in LOG_COLORS.get(record.levelname, 'WHITE').split(",")])
         bold_levelname = f"{self.COLORS['BOLD']}{level_color}{record.levelname}{self.COLORS['RESET']}"
         # 设置name为黄色
         yellow_name = f"{self.COLORS['YELLOW']}{record.name}{self.COLORS['RESET']}"
@@ -109,6 +116,11 @@ def setup_logger(log_name="app.log", log_level="INFO", backup_count=4, file_hand
     """
     log_dir = Path(log_name).parent
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    logging.root.handlers.clear()
+    for log_handler in logging.Logger.manager.loggerDict.values():
+        if isinstance(log_handler, logging.Logger):
+            log_handler.handlers.clear()
 
     config = {
         "version": 1,
@@ -171,7 +183,7 @@ def setup_logger(log_name="app.log", log_level="INFO", backup_count=4, file_hand
     }
 
     # Apply logging configuration
-    logging.config.dictConfig(config)
+    logging_config.dictConfig(config)  # 使用logging.config配置可能会因动态加载导致报错
 
 
 def setup_log(**kwargs):
@@ -197,9 +209,27 @@ def setup_log(**kwargs):
     :type enqueue: bool
     :return: None
     :rtype: NoneType
+
+    Example:
+    >>> setup_log(
+    ...     loguru={
+    ...         "log_name": "app.log", 
+    ...         "log_level": "INFO", 
+    ...         "rotation": "1 week", 
+    ...         "retention": "30 days", 
+    ...         "file_handler": True, 
+    ...         "enqueue": False
+    ...     }, 
+    ...     logging={
+    ...         "log_name": "app.log", 
+    ...         "log_level": "INFO", 
+    ...         "backup_count": 4, 
+    ...         "file_handler": True
+    ...     }
+    ... )
     """
     if kwargs.get("loguru", None):
-        setup_loguru(**kwargs)
+        setup_loguru(**kwargs["loguru"])
     if kwargs.get("logging", None):
-        setup_logger(**kwargs)
+        setup_logger(**kwargs["logging"])
 
