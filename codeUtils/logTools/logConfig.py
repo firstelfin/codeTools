@@ -117,6 +117,8 @@ def setup_logger(log_name="LOG/app.log", log_level="INFO", backup_count=4, file_
     log_dir = Path(log_name).parent
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    # 更改fastapi、uvicorn的日志handler的格式
+
     config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -161,12 +163,17 @@ def setup_logger(log_name="LOG/app.log", log_level="INFO", backup_count=4, file_
 
         "loggers": {
             "uvicorn": {
-                "handlers": ["console"],
+                "handlers": ["console", "file"] if file_handler else ["console"],
+                "level": "INFO",
+                "propagate": False
+            },
+            "uvicorn.error": {
+                "handlers": ["console", "file"] if file_handler else ["console"],
                 "level": "INFO",
                 "propagate": False
             },
             "uvicorn.access": {
-                "handlers": ["file"] if file_handler else ["console"],
+                "handlers": ["console", "file"] if file_handler else ["console"],
                 "level": "INFO",
                 "propagate": False
             }
