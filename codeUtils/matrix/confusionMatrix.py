@@ -36,6 +36,7 @@ class ConfusionMatrix:
         title (str, optional): 图标题. Defaults to "Confusion Matrix".
         cmap (str, optional): 颜色映射. Defaults to "YlGnBu".
         chinese (bool, optional): 是否使用简体中文. Defaults to False.
+        exclude_zero (bool, optional): 是否排除0值. Defaults to True.
 
 
     Attributes:
@@ -67,7 +68,10 @@ class ConfusionMatrix:
 
     class_name = "ConfusionMatrix"
 
-    def __init__(self, num_classes, category: list[str] = None, title: str = "Confusion Matrix", cmap: str = "YlGnBu", chinese: bool = False, dpi: int = 100):
+    def __init__(
+            self, num_classes, category: list[str] = None, 
+            title: str = "Confusion Matrix", cmap: str = "YlGnBu", 
+            chinese: bool = False, dpi: int = 100, exclude_zero=True):
         self.num_classes = num_classes
         self.matrix = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.normal_matrix = np.zeros_like(self.matrix)
@@ -80,6 +84,7 @@ class ConfusionMatrix:
         if chinese:
             self.set_plt()
         self.normal_matrix_status = False
+        self.exclude_zero = exclude_zero
     
     def xlabel_size(self):
         len_list = [len(v) for v in self.category]
@@ -211,9 +216,9 @@ class ConfusionMatrix:
         total_precision = np.sum(self.matrix.diagonal()) / (pred_num[:-1].sum() + 1e-5)
         rp = np.vstack([rp, [gt_num[:-1].sum(), total_recall, pred_num[:-1].sum(), total_precision]])
 
-        mr = np.mean(recall[:-1])
-        mp = np.mean(precision[:-1])
-        rp = np.vstack([rp, [None, mr, None, mp]])
+        mr = np.mean(recall[:-1]) if not self.exclude_zero else recall[recall.nonzero()].mean()
+        mp = np.mean(precision[:-1]) if not self.exclude_zero else precision[precision.nonzero()].mean()
+        rp = np.vstack([rp, ["-", mr, "-", mp]])
 
         df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=self.category+["Total", "Mean"])
         
