@@ -754,9 +754,14 @@ class BoostSlidingWindow(SlidingWindowBase):
 
     Methods:
         - __init__: 初始化滑动窗口类, window_size: 窗口大小, overlap: 窗口重叠率
-        - caculate_cut_point: 根据图像的边长, 计算 X [Y] 的 X1,X2 [Y1,Y2] 分割点
+        - calculate_cut_point: 根据图像的边长, 计算 X [Y] 的 X1,X2 [Y1,Y2] 分割点
         - __call__: 调用滑动窗口类, 计算窗口坐标, 返回窗口坐标列表, box对象是一个(x1, y1, x2, y2)元组
     
+    Note:
+        - 窗口坐标格式为(x1, y1, x2, y2)元组, 其中(x1, y1)为左上角坐标, (x2, y2)为右下角坐标
+        - 窗口的高宽与图像的高宽一样, 计算为: width = x2 - x1, height = y2 - y1
+        - 窗口的坐标范围为: x1 <= x <= x2, y1 <= y <= y2
+        - 约定图像或者box的边框坐标为(x1, y1, x2, y2)格式, x1, y1都能取到, x2, y2都取不到, 契合python的切片索引
     """
 
     def __init__(self, window_size, overlap=0.2, **kwargs):
@@ -766,15 +771,21 @@ class BoostSlidingWindow(SlidingWindowBase):
         self.overlap = overlap
         self.stride = int(window_size * (1 - overlap))
 
-    def caculate_cut_point(self, size: int):
+    def calculate_cut_point(self, size: int):
         """计算分割点
+        - img
+            - img_w --> img.shape[1]
+            - img_h --> img.shape[0]
+        - bbox
+            - img_w --> bbox[:, 2] - bbox[:, 0] + 1
+            - img_h --> bbox[:, 3] - bbox[:, 1] + 1
 
         :param size: 图片边长
         :type size: int
         """
 
         left_size = [i for i in range(0, size, self.stride) if i + self.window_size <= size]
-        right_size = [i for i in range(self.window_size, size, self.stride) if i <= size]
+        right_size = [i for i in range(self.window_size, size+1, self.stride) if i <= size]
         remainder_size = (size - right_size[-1]) if right_size else size
         if remainder_size > 10:
             right_size.append(size)
@@ -782,8 +793,8 @@ class BoostSlidingWindow(SlidingWindowBase):
         return left_size, right_size
     
     def __call__(self, img_size: tuple[int], *args, **kwargs) -> list:
-        left, right = self.caculate_cut_point(img_size[1])
-        top, bottom = self.caculate_cut_point(img_size[0])
+        left, right = self.calculate_cut_point(img_size[1])
+        top, bottom = self.calculate_cut_point(img_size[0])
         windows = self.match_coord(left, right, top, bottom)
         windows = windows.reshape(-1, 4)
         windows = [tuple(box) for box in windows.tolist()]
