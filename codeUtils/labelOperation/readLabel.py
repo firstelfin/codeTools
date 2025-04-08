@@ -65,15 +65,15 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
     soup = BeautifulSoup(xml_str, 'xml')
 
     voc_dict = {
-        'folder': soup.find('folder').text,
-        'filename': soup.find('filename').text,
+        'folder': soup.find('folder').text if soup.find('folder') else "",
+        'filename': soup.find('filename').text if soup.find('filename') else "",
         'path': soup.find('path').text if soup.find('path') else "",
         'source': {"database": soup.find('source').find('database').text if soup.find('source') else "Unknown"},
         'segmented': int(soup.find('segmented').text) if soup.find('segmented') else 0,
         'size': {
             'width': int(soup.find('size').find('width').text),
             'height': int(soup.find('size').find('height').text),
-            'depth': int(soup.find('size').find('depth').text)
+            'depth': int(soup.find('size').find('depth').text) if soup.find('size').find('depth') else 3
         },
         'object': [
             {

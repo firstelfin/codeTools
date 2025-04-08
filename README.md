@@ -32,7 +32,7 @@ twine upload dist/*
 - [ ] 完成labelme2coco的开发：使用 `elfin labelme2coco -h`查看帮助;
 - [ ] 完成labelme2voc的开发：使用 `elfin labelme2voc -h`查看帮助;
 - [ ] 完成yolo2labelme的开发：使用 `elfin yolo2labelme -h`查看帮助;
-- [ ] 完成yolo2coco的开发：使用 `elfin yolo2coco -h`查看帮助;
+- [X] 完成yolo2coco的开发：使用 `elfin yolo2coco -h`查看帮助;
 - [ ] 完成yolo2voc的开发：使用 `elfin yolo2voc -h`查看帮助;
 - [ ] 完成coco2yolo的开发：使用 `elfin coco2yolo -h`查看帮助;
 - [ ] 完成coco2labelme的开发：使用 `elfin coco2labelme -h`查看帮助;

@@ -68,6 +68,19 @@ def cut_img_set_args(cut_img_parser):
     cut_img_config.add_argument('--img_dir_name', type=str, default='images', help='image directory name.')
     cut_img_config.add_argument('--lbl_dir_name', type=str, default='labels', help='label directory name.')
 
+def yolo2coco_set_args(yolo2coco_parser):
+    yolo2coco_config = yolo2coco_parser.add_parser('yolo2coco', help='🔁. yolo to coco format')
+    yolo2coco_config.add_argument('--src_dir', type=str, help='yolo format directory. subdir should be "images" and "labels".')
+    yolo2coco_config.add_argument('dst_dir', type=str, help='coco format save directory.')
+    yolo2coco_config.add_argument('--classes', type=str, help='classes.txt file path. use with --src_dir.')
+    yolo2coco_config.add_argument('--data', type=str, help='data yaml file path. Using this parameter does not '\
+                                  'require specifying src_dir and classes.')
+    yolo2coco_config.add_argument('--use_link', type=bool, default=False, help='use symlink to save images. default: False.')
+    yolo2coco_config.add_argument('--split', type=str, default='train', help='split name. default: train.')
+    yolo2coco_config.add_argument('--class_start_index', type=int, default=0, help='class start index. default: 0.')
+    yolo2coco_config.add_argument('--image_index', type=int, default=0, help='image start index. default: 0.')
+    yolo2coco_config.add_argument('--anno_index', type=int, default=0, help='annotation start index. default: 0.')
+
 # 开始设置命令行工具
 def set_args():
     labelOperation = argparse.ArgumentParser(
@@ -83,5 +96,6 @@ def set_args():
     voc_gen_classes_set_args(sub_command_parser)
     font_download_set_args(sub_command_parser)
     cut_img_set_args(sub_command_parser)
+    yolo2coco_set_args(sub_command_parser)
     args = labelOperation.parse_args()
     return args
