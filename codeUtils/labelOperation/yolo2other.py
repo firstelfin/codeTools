@@ -78,11 +78,14 @@ class YOLO2COCO(object):
             year: str = None, class_start_index: int = 0
         ):
         assert class_start_index < 2, 'class_start_index should be lt 2.'
+        if data is None:
+            assert src_dir is not None and classes is not None, 'src_dir and classes are None, \
+                please provide src_dir and classes, when data is None.'
         if dst_dir is None and data is None:
             raise ValueError('dst_dir and data are None, please provide dst_dir or data.')
         if classes is None and data is None:
             raise ValueError('classes is None, please provide classes.txt file path.')
-        self.src_dir = Path(src_dir)
+        self.src_dir = Path(src_dir) if src_dir is not None else None
         self.dst_dir = Path(dst_dir)
         self.classes = classes
         self.data = data
@@ -102,6 +105,7 @@ class YOLO2COCO(object):
         self.data_split = [
             data[split] for split in ['train', 'val', 'test'] if split in data
         ]
+        self.datasets_path = Path(data["path"])
         self.splits = [split for split in ['train', 'val', 'test'] if split in data]
         self.coco_images = {split: [] for split in self.splits}
         self.coco_annotations = {split: [] for split in self.splits}
@@ -117,8 +121,8 @@ class YOLO2COCO(object):
             self.load_yolo_yaml()
             for i, split in enumerate(self.splits):
                 for sub_dir in self.data_split[i]:
-                    for img_file in (Path(sub_dir) / 'images').iterdir():
-                        lbl_file = sub_dir / 'labels' / (img_file.stem + '.txt')
+                    for img_file in (self.datasets_path / sub_dir / 'images').iterdir():
+                        lbl_file = self.datasets_path / sub_dir / 'labels' / (img_file.stem + '.txt')
                         yield img_file, lbl_file, split
         else:
             self.load_classes()
@@ -141,7 +145,7 @@ class YOLO2COCO(object):
         img_h, img_w = src_img.shape[:2]
         img_info = {
             'id': img_id,
-            'file_name': self.dst_dir / f"{split}{self.year}" / img_file.name,
+            'file_name': str(self.dst_dir / f"{split}{self.year}" / img_file.name),
             'height': img_h,
             'width': img_w,
         }
@@ -222,8 +226,8 @@ class YOLO2COCO(object):
                 image_index += 1
                 res.append(convert_res)
         
-        for convert_res in tqdm(as_completed(res), total=len(res), desc='yolo2coco'):
-            convert_res.result()
+            for convert_res in  tqdm(as_completed(res), total=len(res), desc='yolo2coco'):
+                convert_res.result()
 
         # 保存COCO格式数据集
         self.anno_id_modify(start_index=anno_index)
@@ -236,7 +240,7 @@ class YOLO2COCO(object):
             
 
 def yolo2coco(
-        src_dir: str, dst_dir: str = None, classes: str = None, 
+        src_dir: str = None, dst_dir: str = None, classes: str = None, 
         data: str = None, use_link: bool = False, split: str = 'train', 
         year: str = None, class_start_index: int = 0, image_index: int = 0, anno_index: int = 0
     ):
