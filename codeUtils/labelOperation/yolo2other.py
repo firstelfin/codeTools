@@ -211,7 +211,11 @@ class YOLO2COCO(object):
             "images": coco_images,
             "annotations": coco_annotations,
             "categories": [
-                {"id": i+self.class_start_index, "name": name} for i, name in self.names.items()
+                {
+                    "id": i+self.class_start_index, 
+                    "name": name, 
+                    "supercategory": name
+                } for i, name in self.names.items()
             ],
         }
         save_json(anno_file, coco_dict)

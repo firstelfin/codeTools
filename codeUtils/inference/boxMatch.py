@@ -54,7 +54,7 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
     # 遍历预测框和真值框，计算IOU，并更新匹配状态
 
     iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)), dtype=np.float32)
-    cls_matrix = np.zeros((len(pred_boxes), len(gt_boxes)), dtype=np.bool)
+    cls_matrix = np.zeros((len(pred_boxes), len(gt_boxes)), dtype=bool)
     for i, pbox in enumerate(box1_list):
         for j, gbox in enumerate(box2_list):
             iou = iou_func(gbox[1:], pbox[1:])
