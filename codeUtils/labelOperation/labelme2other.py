@@ -14,6 +14,7 @@ from tqdm import tqdm
 from pathlib import Path, PosixPath
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from codeUtils.labelOperation.readLabel import parser_json
+from codeUtils.labelOperation.saveLabel import save_voc_label
 from codeUtils.tools.font_config import colorstr
 from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
 
@@ -134,8 +135,97 @@ def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
                     l2y_bar.update()
 
 
-def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
-    pass
+def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list = None) -> bool:
+    """labelme格式的json文件转为voc格式的xml文件
+
+    :param str json_file: labelme格式的json文件路径
+    :param str dst_dir: voc格式的xml文件保存文件夹路径
+    :param list extra_keys: 额外的键值, defaults to None
+    :return str: True / None
+    """
+    if Path(json_file).suffix != '.json':
+        return None
+    
+    if extra_keys is None:
+        extra_keys = []
+
+    # 读取labelme格式的json
+    labelme_json = parser_json(json_file)
+    json_path = Path(json_file)
+    seg_ins_idx = [i for i, shape in enumerate(labelme_json['shapes']) if shape["shape_type"] == "polygon"]
+    have_segmented = len(seg_ins_idx) > 0
+
+    voc_dict = {
+        'folder': str(json_path.parent),
+        'filename': labelme_json['imagePath'],
+        'path': labelme_json['imagePath'],
+        'source': {"database": "Unknown"},
+        'segmented': have_segmented,
+        'size': {
+            'width': labelme_json['imageWidth'],
+            'height': labelme_json['imageHeight'],
+            'depth':  3
+        },
+        'object': [
+            {
+                'name': obj.get("label", "Unknown"),
+                'pose': "Unspecified",
+                'truncated': 0,
+                'difficult': 0,
+                'bndbox': {
+                    'xmin': obj['points'][0][0],
+                    'ymin': obj['points'][0][1],
+                    'xmax': obj['points'][1][0],
+                    'ymax': obj['points'][1][1]
+                },
+                # "segmentation": [],
+                **{key: obj.get(key, -1) for key in extra_keys}
+            } for j, obj in enumerate(labelme_json["shapes"])
+        ]
+    }
+    # 保存voc格式的xml文件
+    xml_file = Path(dst_dir) / (json_path.stem + '.xml')
+    save_voc_label(xml_file, voc_header=voc_dict, objects=voc_dict['object'], other_keys=extra_keys)
+    return True
+
+
+def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, extra_keys: list = None) -> None:
+    """labelme格式的json文件批量转为voc格式的xml文件
+
+    :param PosixPath src_dir: labelme格式的json文件路径
+    :param PosixPath dst_dir: voc格式的xml文件保存文件夹路径
+    """
+
+    if extra_keys is None:
+        extra_keys = []
+    l2v_desc = colorstr("bright_blue", "bold", "labelme2voc")
+    cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
+    tasks_num = len(list(Path(src_dir).rglob('*.json')))
+    batch_size = 100
+    epoch_num = math.ceil(tasks_num / batch_size)
+    tqdm_tasks = Path(src_dir).rglob('*.json')
+
+    with ThreadPoolExecutor(max_workers=cpu_num) as executor:
+        with tqdm(total=tasks_num, desc=l2v_desc, dynamic_ncols=True, colour="#CD8500") as l2v_bar:
+            for epoch in range(epoch_num):
+                start_idx = epoch * batch_size
+                end_idx = min(tasks_num, (epoch + 1) * batch_size)
+                
+                inner_tasks = []
+                epoch_size = end_idx - start_idx
+
+                for _ in range(start_idx, end_idx):
+                    json_file = next(tqdm_tasks)
+                    inner_tasks.append(executor.submit(labelme_to_voc, json_file, dst_dir, extra_keys))
+                
+                for ti, task in enumerate(as_completed(inner_tasks), start=1):
+                    task.result()
+                    l2v_bar.set_postfix({
+                        BATCH_KEY: f"{ti}/{epoch_size}", 
+                        START_KEY: start_idx, 
+                        END_KEY: end_idx
+                    })
+                    l2v_bar.update()
 
 
 def labelme2coco(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:

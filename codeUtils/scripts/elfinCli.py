@@ -9,7 +9,7 @@
 '''
 
 from codeUtils.__base__ import set_args
-from codeUtils.labelOperation.labelme2other import labelme2yolo
+from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc_gen_classes
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
@@ -45,5 +45,7 @@ def elfin():
             use_link=args.use_link, split=args.split, class_start_index=args.class_start_index, 
             image_index=args.image_index, anno_index=args.anno_index
         )
+    elif args.mode == "labelme2voc":
+        labelme2voc(args.src_dir, args.dst_dir, args.extra_keys)
     else:
         print("Invalid subcommand")

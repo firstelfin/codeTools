@@ -81,6 +81,13 @@ def yolo2coco_set_args(yolo2coco_parser):
     yolo2coco_config.add_argument('--image_index', type=int, default=0, help='image start index. default: 0.')
     yolo2coco_config.add_argument('--anno_index', type=int, default=0, help='annotation start index. default: 0.')
 
+
+def labelme2voc_set_args(labelme2voc_parser):
+    labelme2voc_config = labelme2voc_parser.add_parser('labelme2voc', help='🔁. labelme to voc format')
+    labelme2voc_config.add_argument('src_dir', type=str, help='labelme annotation directory.')
+    labelme2voc_config.add_argument('dst_dir', type=str, help='voc format save directory.')
+    labelme2voc_config.add_argument('--extra_keys', nargs="*", type=list, default=[], help='extra keys to add to voc xml file.')
+
 # 开始设置命令行工具
 def set_args():
     labelOperation = argparse.ArgumentParser(
@@ -91,6 +98,7 @@ def set_args():
     labelOperation.add_argument('--mode', help='Subcommand to run')
     sub_command_parser = labelOperation.add_subparsers(dest="mode", title="subcommands")
     labelme2yolo_set_args(sub_command_parser)
+    labelme2voc_set_args(sub_command_parser)
     voc2yolo_set_args(sub_command_parser)
     yolo_label_exclude_set_args(sub_command_parser)
     voc_gen_classes_set_args(sub_command_parser)
