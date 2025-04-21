@@ -211,6 +211,8 @@ def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
     :param str dst_dir: labelme格式标注输出路径, defaults to None
     :param bool img_valid: 是否对图片进行检查, defaults to False
     """
+    dst_dir = Path(dst_dir)
+    dst_dir.mkdir(exist_ok=True, parents=True)
     
     tasks_num = len(list(Path(src_dir).rglob("*.xml")))
     v2l_desc = colorstr("bright_blue", "bold", "voc2labelme")
