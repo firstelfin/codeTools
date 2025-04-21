@@ -46,6 +46,12 @@ def voc2yolo_set_args(voc2yolo_parser):
     voc2yolo_config.add_argument('--img_valid', action='store_true', help='copy image to save directory.')
 
 
+def voc2labelme_set_args(voc2labelme_parser):
+    voc2labelme_config = voc2labelme_parser.add_parser('voc2labelme', help='🔁. voc to labelme format')
+    voc2labelme_config.add_argument('src_dir', type=str, help='voc annotation directory.')
+    voc2labelme_config.add_argument('dst_dir', type=str, help='labelme format save directory.')
+
+
 def voc_gen_classes_set_args(voc2classes_parser):
     voc2classes_config = voc2classes_parser.add_parser(
         'voc2yoloClasses', help='generate classes.txt file from voc annotation',
@@ -100,10 +106,11 @@ def set_args():
     labelme2yolo_set_args(sub_command_parser)
     labelme2voc_set_args(sub_command_parser)
     voc2yolo_set_args(sub_command_parser)
-    yolo_label_exclude_set_args(sub_command_parser)
+    voc2labelme_set_args(sub_command_parser)
     voc_gen_classes_set_args(sub_command_parser)
+    yolo2coco_set_args(sub_command_parser)
+    yolo_label_exclude_set_args(sub_command_parser)
     font_download_set_args(sub_command_parser)
     cut_img_set_args(sub_command_parser)
-    yolo2coco_set_args(sub_command_parser)
     args = labelOperation.parse_args()
     return args

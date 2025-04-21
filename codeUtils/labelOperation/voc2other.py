@@ -10,11 +10,14 @@
 
 import math
 import psutil
+import cv2 as cv
 from tqdm import tqdm
 from pathlib import Path
+from loguru import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.labelOperation.readLabel import read_voc, read_txt
+from codeUtils.labelOperation.saveLabel import save_labelme_label
 from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
 from codeUtils.tools.font_config import colorstr
 
@@ -150,3 +153,97 @@ def voc2yolo(src_dir: str, dst_dir: str = None, classes: list = None, img_valid:
                     })
                     v2y_bar.update()
 
+
+def voc_to_labelme(src_file: str, dst_file: str = None, img_valid: bool = False):
+    """xml标注转labelme格式
+
+    :param str src_file: xml文件路径
+    :param str dst_file: labelme格式文件保存路径, defaults to None
+    :param bool img_valid: 是否检查图片是否存在, defaults to False
+    """
+    voc_dict = read_voc(src_file)
+    if voc_dict is None:
+        logger.warning(f"xml file {src_file} not found.")
+        return None
+    
+    labelme_dict = {
+        "version": "4.5.6",
+        "flags": {},
+        "shapes": [],
+        "imagePath": voc_dict["path"] if voc_dict["path"] else voc_dict["filename"],
+        "imageData": None,
+        "imageHeight": voc_dict["size"]["height"],
+        "imageWidth": voc_dict["size"]["width"],
+    }
+
+    if img_valid and not Path(voc_dict["path"]).exists():
+        return None
+    if img_valid:
+        src_img = cv.imread(str(voc_dict["path"]))
+        height_valid = src_img.shape[0] == voc_dict["size"]["height"]
+        width_valid = src_img.shape[1] == voc_dict["size"]["width"]
+        if not (height_valid and width_valid):
+            logger.warning(f"image size not match with xml file {src_file}.")
+            return None
+    
+    labelme_dict["shapes"] = [
+        {
+            "label": obj["name"],
+            "points": [
+                [int(obj["bndbox"]["xmin"]), int(obj["bndbox"]["ymin"])],
+                [int(obj["bndbox"]["xmax"]), int(obj["bndbox"]["ymax"])]
+            ],
+            "group_id": None,
+            "shape_type": "rectangle",
+            "flags": {}
+        } for obj in voc_dict["object"]
+    ]
+    
+    Path(dst_file).parent.mkdir(exist_ok=True, parents=True)
+    save_labelme_label(dst_file, labelme_dict)
+
+    return True
+
+def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
+    """src_dir下xml标注转换为labelme格式, 输出到dst_dir
+
+    :param str src_dir: xml标注目录路径, 文件夹下平铺所有XML文件
+    :param str dst_dir: labelme格式标注输出路径, defaults to None
+    :param bool img_valid: 是否对图片进行检查, defaults to False
+    """
+    
+    tasks_num = len(list(Path(src_dir).rglob("*.xml")))
+    v2l_desc = colorstr("bright_blue", "bold", "voc2labelme")
+    cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
+    batch_size = 100
+    epoch_num = math.ceil(tasks_num / batch_size)
+    tqdm_tasks = Path(src_dir).rglob("*.xml")
+
+    # xml文件转换为yolo格式, 文件已经包含了所有信息
+    with ThreadPoolExecutor(max_workers=cpu_num) as executor:
+        with tqdm(total=tasks_num, desc=v2l_desc, dynamic_ncols=True, colour="#CD8500") as v2l_bar:
+            for epoch in range(epoch_num):
+                start_idx = epoch * batch_size
+                end_idx = min(tasks_num, (epoch + 1) * batch_size)
+                
+                inner_tasks = []
+                epoch_size = end_idx - start_idx
+
+                for _ in range(start_idx, end_idx):
+                    voc_file = next(tqdm_tasks)
+                    inner_tasks.append(
+                        executor.submit(
+                            voc_to_labelme, str(voc_file),
+                            str(dst_dir / f"{voc_file.stem}.json"),
+                            img_valid
+                        )
+                    )
+                
+                for ti, task in enumerate(as_completed(inner_tasks), start=1):
+                    task.result()
+                    v2l_bar.set_postfix({
+                        BATCH_KEY: f"{ti}/{epoch_size}", 
+                        START_KEY: start_idx, 
+                        END_KEY: end_idx
+                    })
+                    v2l_bar.update()

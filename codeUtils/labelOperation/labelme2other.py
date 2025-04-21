@@ -153,7 +153,7 @@ def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list = None) -> boo
     labelme_json = parser_json(json_file)
     json_path = Path(json_file)
     seg_ins_idx = [i for i, shape in enumerate(labelme_json['shapes']) if shape["shape_type"] == "polygon"]
-    have_segmented = len(seg_ins_idx) > 0
+    have_segmented = int(len(seg_ins_idx) > 0)
 
     voc_dict = {
         'folder': str(json_path.parent),
@@ -198,6 +198,7 @@ def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, extra_keys: list = None)
 
     if extra_keys is None:
         extra_keys = []
+    Path(dst_dir).mkdir(exist_ok=True, parents=True)
     l2v_desc = colorstr("bright_blue", "bold", "labelme2voc")
     cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
     tasks_num = len(list(Path(src_dir).rglob('*.json')))
