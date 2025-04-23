@@ -12,6 +12,7 @@ import cv2 as cv
 import numpy as np
 from copy import deepcopy
 from abc import ABC, abstractmethod
+from sklearn.cluster import KMeans
 from pathlib import Path, PosixPath
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
@@ -462,7 +463,11 @@ class StatisticBase(object):
         ```
     """
 
-    def __init__(self, src_gt: list[str], src_pred: list[str], dst_dir: str, project: str = 'inference', use_ios: bool = True, classes: str = 'classes.txt'):
+    def __init__(
+            self, src_gt: list[str], src_pred: list[str], dst_dir: str, 
+            project: str = 'inference', use_ios: bool = True, 
+            classes: str = 'classes.txt', chinese: bool = True, **kwargs
+        ):
         """初始化统计类
 
         :param src_gt: 标签文件路径
@@ -486,7 +491,7 @@ class StatisticBase(object):
         self.backgroud = False
         self.classes = self.get_classes(classes)
         # 初始化统计的matrix
-        self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=True)
+        self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=chinese)
     
     def get_classes(self, class_file: str) -> list:
         """获取类别列表
@@ -622,6 +627,7 @@ class StatisticBase(object):
         return True
 
     def __call__(self, *args, **kwargs):
+        # TODO: 增加字体渲染size、token渲染size信息判别
         
         entities_generator = self.load_datasets()
         total_num = next(entities_generator)
@@ -994,6 +1000,196 @@ class MergeSlidingBase(object):
         # keep_to_merge_list = self.sahi_merge(pred_boxes, **kwargs)
         # new_pred_boxes = self.combine(pred_boxes, keep_to_merge_list, **kwargs)
         return results
+
+
+@SliceRegistry
+class PresetAdaptiveWindow(object):
+    """根据预设窗口数量生成裁切窗口, 窗口数量小于等于window_num
+
+    step1: 先聚类, 并将类内的box融合为一个框;\n
+    step2: 根据window_size, max_scale_ratio, 合并窗口, 满足合并后的窗口size不大于max_scale_ratio倍的窗口大小;\n
+    step3: 窗口边界调整, 以满足window_size和window_num的要求;\n
+
+    Args:
+        window_num (int): 预设窗口数量
+        same_ratio (bool, optional): 是否保持窗口比例, defaults to False
+          - True: 高宽保持一样的放缩倍率, 使得高宽比和window_size保持一致
+          - False: 类别窗口较大时, 不改变box
+        keep_size (bool, optional): 是否保持窗口大小(低于基础窗口大小时生效), defaults to False
+          - True: 保持窗口比例, 即窗口的高宽比不变, 聚类后box是多少, 窗口就返回多少
+          - False: 根据window_size修改边框
+
+    Example:
+
+        ```python
+        >>> from pprint import pprint
+        >>> paw = PresetAdaptiveWindow(window_num=10, same_ratio=False, keep_size=False)
+        ... windows = paw(
+        ...     bboxes=[
+        ...         [100, 100, 200, 200], [98, 120, 230, 168],
+        ...         [150, 150, 250, 250], [0, 100, 198, 348],
+        ...         # [789, 123, 987, 321]
+        ...     ],
+        ...     window_size=(640, 640),
+        ...     image_shape=(1080, 1920, 3)
+        ... )
+        ... print("paw:")
+        ... pprint(windows)
+        ```
+    """
+
+    def __init__(self, window_num: int, same_ratio: bool = False, keep_size: bool = False, *args, **kwargs):
+        self.keep_size = keep_size
+        self.window_num = window_num
+        assert window_num > 0, "window_num should be greater than 0"
+        self.same_ratio = same_ratio
+        super().__init__()
+    
+    def get_centers(self, bboxes: list[list]):
+        """根据bboxes获取中心点坐标
+
+        :param list[list] bboxes: 目标实例边框列表
+        """
+
+        centers = []
+        for box in bboxes:
+            x1, y1, x2, y2 = box
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            centers.append([cx, cy])
+        
+        centers = np.array(centers)
+        return centers
+    
+    def get_cluster_window(self, k, cluster_labels: list, bboxes: list[list], image_shape=None, *args, **kwargs):
+        
+        windows = []
+        src_size_dict = dict() if image_shape is None else {"img_h": image_shape[0], "img_w": image_shape[1]}
+        
+        for i in range(k):
+            # 获取当前聚类中的所有box
+            cluster_boxes = [bboxes[j] for j in range(len(bboxes)) if cluster_labels[j] == i]
+            
+            if not cluster_boxes:
+                continue
+                
+            # 计算覆盖整个聚类的最小矩形
+            min_x1 = min(box[0] for box in cluster_boxes)
+            min_y1 = min(box[1] for box in cluster_boxes)
+            max_x2 = max(box[2] for box in cluster_boxes)
+            max_y2 = max(box[3] for box in cluster_boxes)
+
+            win_x1 = int(max(0, min_x1))
+            win_y1 = int(max(0, min_y1))
+            win_x2 = int(min(src_size_dict.get("img_w", max_x2), max_x2))
+            win_y2 = int(min(src_size_dict.get("img_h", max_y2), max_y2))
+            
+            windows.append((win_x1, win_y1, win_x2, win_y2))
+        return windows
+    
+    def fuse_windows(self, windows: list, window_size: tuple[int] = (640, 640), max_scale_ratio: float = 1.2, *args, **kwargs):
+        """融合距离足够近的窗口, 并放缩窗口大小以满足设计比例
+
+        :param list windows: 聚类算法生成的窗口列表
+        :param tuple[int] window_size: 裁切窗口的大小
+        :param float max_scale_ratio: 最大放缩比例, defaults to 1.2
+        """
+
+        max_w, max_h = window_size[0] * max_scale_ratio, window_size[1] * max_scale_ratio
+
+        delete_index = []
+        for i in range(len(windows)-1):
+            for j in range(i+1, len(windows)):
+                new_x1 = min(windows[i][0], windows[j][0])
+                new_y1 = min(windows[i][1], windows[j][1])
+                new_x2 = max(windows[i][2], windows[j][2])
+                new_y2 = max(windows[i][3], windows[j][3])
+                new_w = new_x2 - new_x1
+                new_h = new_y2 - new_y1
+                if new_w <= max_w and new_h <= max_h:
+                    # 窗口距离足够近, 融合窗口
+                    windows[j] = (new_x1, new_y1, new_x2, new_y2)
+                    delete_index.append(i)
+
+        windows = [windows[i] for i in range(len(windows)) if i not in delete_index]
+        return windows
+
+    def modify_windows(self, windows: list, window_size: tuple[int], same_ratio: bool, keep_size: bool, image_shape=None, *args, **kwargs):
+        """调整窗口
+
+        :param list windows: _description_
+        :param tuple[int] window_size: _description_
+        :param bool same_ratio: _description_
+        :param bool keep_size: _description_
+        :param _type_ image_shape: _description_, defaults to None
+        :return _type_: _description_
+        """
+        if not windows or keep_size:
+            return windows
+        base_w, base_h = window_size
+        for i in range(len(windows)):
+            min_x1, min_y1, max_x2, max_y2 = windows[i]
+            
+            # 计算当前区域的宽高
+            region_w = max_x2 - min_x1
+            region_h = max_y2 - min_y1
+            
+            # 计算窗口缩放比例，保持宽高比
+            scale_w = max(1.0, region_w / base_w)
+            scale_h = max(1.0, region_h / base_h)
+            scale = max(scale_w, scale_h)
+            
+            # 计算缩放后的窗口大小
+            scaled_w = int(base_w * scale if same_ratio else  base_w * scale_w)
+            scaled_h = int(base_h * scale if same_ratio else  base_h * scale_h)
+            
+            # 计算窗口中心点(使用聚类中心)
+            # center_x, center_y = k_means.cluster_centers_[i]
+            center_x, center_y = int(min_x1 + region_w / 2), int(min_y1 + region_h / 2)
+            
+            # 生成窗口坐标
+            win_x1 = max(0, center_x - scaled_w // 2)
+            win_y1 = max(0, center_y - scaled_h // 2)
+            win_x2 = win_x1 + scaled_w
+            win_y2 = win_y1 + scaled_h
+            
+            # 如果提供了图像尺寸，确保窗口不超出图像边界
+            if image_shape is not None:
+                h, w = image_shape[:2]
+                win_x1 = max(0, win_x1)
+                win_y1 = max(0, win_y1)
+                win_x2 = min(w, win_x2)
+                win_y2 = min(h, win_y2)
+            windows[i] = (win_x1, win_y1, win_x2, win_y2)
+        return windows
+
+    def __call__(self, bboxes: list[list], window_size: tuple[int], image_shape=None, *args, **kwargs):
+        same_ratio = self.same_ratio if "same_ratio" not in kwargs else kwargs["same_ratio"]
+        keep_size = self.keep_size if "keep_size" not in kwargs else kwargs["keep_size"]
+
+        if not bboxes:
+            return []
+        centers = self.get_centers(bboxes)
+        centers = np.array(centers)
+
+        # 使用K-means聚类将目标分组
+        k = min(self.window_num, len(bboxes))  # 实际使用的窗口数不超过目标数
+        if k == 0:
+            return []
+
+        k_means = KMeans(n_clusters=k, random_state=0).fit(centers)
+        labels = k_means.labels_
+
+        # 为每个聚类计算覆盖所有目标的最小窗口, 并合并较小的类外接矩形框
+        windows = self.get_cluster_window(k, labels, bboxes, image_shape)
+        windows = self.fuse_windows(windows, window_size, max_scale_ratio=1.2)
+
+        # 调整窗口大小
+        windows = self.modify_windows(windows, window_size, same_ratio, keep_size, image_shape)
+
+        return windows
+
+
 
 
 if __name__ == '__main__':

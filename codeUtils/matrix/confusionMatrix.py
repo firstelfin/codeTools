@@ -71,7 +71,7 @@ class ConfusionMatrix:
     def __init__(
             self, num_classes, category: list[str] = None, 
             title: str = "Confusion Matrix", cmap: str = "YlGnBu", 
-            chinese: bool = False, dpi: int = 100, exclude_zero=True):
+            chinese: bool | str = False, dpi: int = 100, exclude_zero=True):
         self.num_classes = num_classes
         self.matrix = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.normal_matrix = np.zeros_like(self.matrix)
@@ -82,7 +82,7 @@ class ConfusionMatrix:
         self.figure_status = False
         self.matrix_num_len = None
         if chinese:
-            self.set_plt()
+            self.set_plt(font_path=chinese if isinstance(chinese, str) else None)
         self.normal_matrix_status = False
         self.exclude_zero = exclude_zero
     
