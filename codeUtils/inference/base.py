@@ -11,6 +11,7 @@ import warnings
 import cv2 as cv
 import numpy as np
 from copy import deepcopy
+from typing import Literal
 from abc import ABC, abstractmethod
 from sklearn.cluster import KMeans
 from pathlib import Path, PosixPath
@@ -431,10 +432,11 @@ class StatisticBase(object):
     """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
     推理结果文件夹和标注文件夹需要对应, 文件夹名称可以不一样.
 
-    注: 全流程默认使用ultralytics的yolo模型, 若需要使用其他模型, 请重写以下方法:
+    注: 全流程默认使用ultralytics的yolo模型, 若需要使用其他模型, 请重写以下方法:\n
         - gt2match : gt格式的对象转换为匹配格式, 匹配格式由自定义匹配模块定义
-        - get_gt_suffix : 获取标签文件后缀名
-        - read_label : 读取标签文件, 返回标签对象
+        - load_lbl_data : 读取标签文件, 返回标签对象, 目前只支持txt, json, xml格式
+        - xxx2match: 各种数据格式转换为匹配格式, 匹配格式由自定义匹配模块定义
+        - get_image_shape: 读取图片的shape, 用于YOLO标注box百分比坐标还原
         - match: 自定义匹配模块, 输入为gt和pred, 返回匹配结果
 
     Args:
@@ -444,7 +446,12 @@ class StatisticBase(object):
         project (str, optional): 实验名称, defaults to 'inference'.
         use_ios (bool, optional): 是否使用IOS计算, defaults to True
         classes (str, optional): 类别文件路径, defaults to 'classes.txt'.
+        chinese (bool, optional): 是否使用中文类别, 可以指定中文字体文件的路径, defaults to True
+        gt_suffix (str, optional): 标签文件后缀名, defaults to '.txt'.
+        pred_suffix (str, optional): 推理结果文件后缀名, defaults to '.json'.
     
+    注意: gt_suffix 和 pred_suffix 可以任选txt, json, xml格式, 但是若都使用YOLO格式, 则算法失效(不能得到像素坐标).
+        
     Example:
         ```python
         >>> statistic = StatisticBase(
@@ -463,10 +470,18 @@ class StatisticBase(object):
         ```
     """
 
+    suffix_load_func = {
+        ".txt": read_yolo,
+        ".json": parser_json,
+        ".xml": read_voc
+    }
+
     def __init__(
             self, src_gt: list[str], src_pred: list[str], dst_dir: str, 
             project: str = 'inference', use_ios: bool = True, 
-            classes: str = 'classes.txt', chinese: bool = True, **kwargs
+            classes: str = 'classes.txt', chinese: bool = True, 
+            gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
+            pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', **kwargs
         ):
         """初始化统计类
 
@@ -482,7 +497,16 @@ class StatisticBase(object):
         :type use_ios: bool, optional
         :param classes: 类别文件路径, defaults to 'classes.txt'
         :type classes: str, optional
+        :param chinese: 是否使用中文类别, 可以指定中文字体文件的路径, defaults to True
+        :type chinese: bool, optional
+        :param gt_suffix: 标签文件后缀名, defaults to '.txt'
+        :type gt_suffix: Literal[".txt", ".json", ".xml"], optional
+        :param pred_suffix: 推理结果文件后缀名, defaults to '.json'
+        :type pred_suffix: Literal[".txt", ".json", ".xml"], optional
         """
+
+        assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"
+        assert pred_suffix in self.suffix_load_func, f"不支持的预测文件后缀名{pred_suffix}"
         self.src_gt = path_list_valid(src_gt)
         self.src_pred = path_list_valid(src_pred)
         self.dst_dir = get_exp_dir(dst_dir, project + "Statistic")
@@ -492,6 +516,9 @@ class StatisticBase(object):
         self.classes = self.get_classes(classes)
         # 初始化统计的matrix
         self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=chinese)
+        self.gt_suffix = gt_suffix
+        self.pred_suffix = pred_suffix
+        self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
     
     def get_classes(self, class_file: str) -> list:
         """获取类别列表
@@ -503,16 +530,6 @@ class StatisticBase(object):
         classes.append('background')
         self.backgroud = True  # 标记是否有背景类
         return classes
-
-    @staticmethod
-    def read_label(label_file: str):
-        yolo_label = read_yolo(label_file)
-        # 转换yolo标注为xyxy格式
-        return yolo_label
-
-    @staticmethod
-    def get_gt_suffix():
-        return '.txt'
 
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
@@ -543,20 +560,19 @@ class StatisticBase(object):
                 lbl_file = Path(self.src_gt[i]) / (file.stem + self.get_gt_suffix())
                 yield file, lbl_file
 
-    def load_pred(self, pred_file: str) -> dict:
+    def load_lbl_data(self, lbl_file: str, suffix: str) -> dict:
         """加载单个预测结果文件, 返回预测结果[dict]
 
-        :param pred_file: 预测结果文件路径
-        :type pred_file: str
+        :param lbl_file: 预测结果文件路径
+        :type lbl_file: str
+        :param suffix: 标签文件后缀名
+        :type suffix: str
+        :return: 预测结果[dict]
         """
-        labelme_data = parser_json(pred_file)
-        return labelme_data
-    
-    def load_gt(self, gt_file: str):
-        gt_entities = self.read_label(gt_file)
-        return gt_entities
+        lbl_data = self.suffix_load_func[suffix](lbl_file)
+        return lbl_data
 
-    def pred2match(self, pred_entities: dict) -> list:
+    def labelme2match(self, pred_entities: dict, **kwargs) -> list:
         """将labelme格式的对象转换为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param pred_entities: labelme格式的预测结果对象
@@ -564,31 +580,74 @@ class StatisticBase(object):
         """
         pred_boxes = []
         for shape in pred_entities['shapes']:
-            box_cls = shape['code']  # yolo模型注入的类别编号
+            box_cls = shape['label']  # yolo模型注入的类别编号
             x1, y1, x2, y2 = shape['points'][0][0], shape['points'][0][1], shape['points'][1][0], shape['points'][1][1]
             box = [x1, y1, x2, y2]
             pred_boxes.append([box_cls, *box])
-            pass
+        
         return pred_boxes
     
-    def gt2match(self, gt_entities: list, **kwargs) -> list:
+    def yolo2match(self, gt_entities: list, **kwargs) -> list:
         """将标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param gt_entities: 标注文件内容
         :type gt_entities: list
         """
-        imgh, imgw = kwargs.get('img_shape', (0, 0))
-        if imgh == 0 or imgw == 0:
-            raise ValueError("img_shape参数不能为空")
+        imgh, imgw = kwargs.get('img_shape', (1, 1))
         gt_boxes = []
         for entity in gt_entities:
             x, y, w, h = entity[1:5]
-            x1 = int(max(0, (x - w / 2) * imgw))
-            y1 = int(max(0, (y - h / 2) * imgh))
-            x2 = int(min(imgw, (x + w / 2) * imgw))
-            y2 = int(min(imgh, (y + h / 2) * imgh))
-            gt_boxes.append([entity[0], x1, y1, x2, y2])
+            x1 = max(0, (x - w / 2) * imgw)
+            y1 = max(0, (y - h / 2) * imgh)
+            x2 = min(imgw, (x + w / 2) * imgw)
+            y2 = min(imgh, (y + h / 2) * imgh)
+            label = self.classes[entity[0]+1] if self.backgroud else self.classes[entity[0]]
+            gt_boxes.append([label, x1, y1, x2, y2])
         return gt_boxes
+    
+    def voc2match(self, gt_entities: dict, **kwargs) -> list:
+        """将voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param gt_entities: voc格式的标注文件内容
+        :type gt_entities: dict
+        """
+        result = []
+        for obj in gt_entities["object"]:
+            label = obj["name"]
+            x1, y1, x2, y2 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"], obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
+            result.append([label, x1, y1, x2, y2])
+        return result
+    
+    def middle2match(self, gt_entities: list | dict, suffix: str = None, **kwargs) -> list:
+        """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param list gt_entities: 各种格式的标签直接加载的对象
+        :param str suffix: 标签文件后缀名
+        :return list: 示例列表
+        """
+        if suffix is None or suffix == ".json":
+            return self.labelme2match(gt_entities, **kwargs)
+        elif suffix == ".txt":
+            return self.yolo2match(gt_entities, **kwargs)
+        elif suffix == ".xml":
+            return self.voc2match(gt_entities, **kwargs)
+        else:
+            raise ValueError(f"不支持的标签文件后缀名{suffix}")
+
+    def get_image_shape(self, pred_entities, gt_entities, **kwargs) -> tuple:
+        if not self.is_yolo_lbl:
+            img_shape = (1, 1)
+        if self.pred_suffix == ".json":
+            img_shape = (pred_entities['imageHeight'], pred_entities['imageWidth'])
+        elif self.pred_suffix == ".xml":
+            img_shape = (pred_entities["size"]["height"], pred_entities["size"]["width"])
+        elif self.gt_suffix == ".json":
+            img_shape = (gt_entities['imageHeight'], gt_entities['imageWidth'])
+        elif self.gt_suffix == ".xml":
+            img_shape = (gt_entities["size"]["height"], gt_entities["size"]["width"])
+        else:
+            img_shape = (1, 1)
+        return img_shape
 
     def update(self, update_dict: dict):
         """更新统计矩阵
@@ -601,12 +660,12 @@ class StatisticBase(object):
             self.matrix.matrix[:, key_index] += value
 
     def match(self, pred_file: str, gt_file: str, **kwargs):
-        labelme_dict = self.load_pred(pred_file)
-        gt_entities = self.load_gt(gt_file)
-        img_shape = (labelme_dict['imageHeight'], labelme_dict['imageWidth'])
+        pred_entities = self.load_lbl_data(pred_file)
+        gt_entities = self.load_lbl_data(gt_file)
+        img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
         # 匹配预测结果和标签文件
-        pred_boxes = self.pred2match(labelme_dict)
-        gt_boxes = self.gt2match(gt_entities, img_shape=img_shape)
+        pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
+        gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
         # 计算IoU
         ios_thresh = kwargs.get('ios_thresh', 0.5)
         iou_thresh = kwargs.get('iou_thresh', 0.5)
@@ -626,15 +685,18 @@ class StatisticBase(object):
 
         return True
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, iou_thresh: float = 0.5, ios_thresh: float = 0.5, rendering: bool = False, *args, **kwargs):
+        """统计接口
+
+        :param float iou_thresh: 交并比阈值, defaults to 0.5
+        :param float ios_thresh: 交自比阈值, defaults to 0.5
+        :param bool rendering: 是否渲染, defaults to False
+        """
         # TODO: 增加字体渲染size、token渲染size信息判别
         
         entities_generator = self.load_datasets()
         total_num = next(entities_generator)
         bar_desc = colorstr("bright_blue", "bold", "Statistic")
-        rendering = kwargs.get('rendering', False)
-        ios_thresh = kwargs.get('ios_thresh', 0.5)
-        iou_thresh = kwargs.get('iou_thresh', 0.5)
         instance_batch_size = getattr(self, 'batch_size', 4)
         batch_size = kwargs.get('batch_size', instance_batch_size)
         epoch_num = math.ceil(total_num / batch_size)
@@ -659,7 +721,6 @@ class StatisticBase(object):
                     # 更新进度条
                     for ti, task in enumerate(as_completed(inner_tasks), start=1):
                         task.result()
-                        # TODO: 处理进度条打印内容
                         epoch_bar.set_postfix({
                             BATCH_KEY: f"{ti}/{epoch_size}", 
                             START_KEY: start_idx, 
