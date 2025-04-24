@@ -30,6 +30,19 @@ def labelme2yolo_set_args(labelme2yolo_parser):
     labelme2yolo_config.add_argument('classes', type=str, help='class id mapping file.')
 
 
+def labelme2coco_set_args(labelme2coco_parser):
+    labelme2coco_config = labelme2coco_parser.add_parser('labelme2coco', help='🔁. labelme to coco format')
+    labelme2coco_config.add_argument('img_dir', type=str, help='labelme images directory.')
+    labelme2coco_config.add_argument('--lbl_dir', type=str, default=None, help='labelme annotations directory.')
+    labelme2coco_config.add_argument('dst_dir', type=str, help='coco format save directory.')
+    labelme2coco_config.add_argument('classes', type=str, help='yolo classes.txt format file.')
+    labelme2coco_config.add_argument('--use_link', type=bool, default=False, help='use symlink to save images. default: False.')
+    labelme2coco_config.add_argument('--split', type=str, default='train', help='split name. default: train.')
+    labelme2coco_config.add_argument('--year', type=str, default="", help='dataset year. default: "".')
+    labelme2coco_config.add_argument('--class_start_index', type=int, default=0, help='class start index. default: 0.')
+    labelme2coco_config.add_argument('--img_idx', type=int, default=0, help='image start index. default: 0.')
+    labelme2coco_config.add_argument('--ann_idx', type=int, default=0, help='annotation start index. default: 0.')
+
 def yolo_label_exclude_set_args(yolo_label_exclude_parser):
     yolo_label_exclude_config = yolo_label_exclude_parser.add_parser('yoloLabelExclude', help='exclude some labels from yolo label')
     yolo_label_exclude_config.add_argument('include_classes', nargs='+', type=int, help='include classes id list, i.e.: 1 2 4.')
@@ -105,6 +118,7 @@ def set_args():
     sub_command_parser = labelOperation.add_subparsers(dest="mode", title="subcommands")
     labelme2yolo_set_args(sub_command_parser)
     labelme2voc_set_args(sub_command_parser)
+    labelme2coco_set_args(sub_command_parser)
     voc2yolo_set_args(sub_command_parser)
     voc2labelme_set_args(sub_command_parser)
     voc_gen_classes_set_args(sub_command_parser)

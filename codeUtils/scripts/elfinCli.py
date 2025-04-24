@@ -9,7 +9,7 @@
 '''
 
 from codeUtils.__base__ import set_args
-from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc
+from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc, labelme2coco
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc_gen_classes
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
@@ -25,7 +25,13 @@ def elfin():
         labelme2yolo(src_dir, dst_dir, classes)
     elif args.mode == "labelme2voc":
         labelme2voc(args.src_dir, args.dst_dir, args.extra_keys)
-    
+    elif args.mode == "labelme2coco":
+        labelme2coco(
+            img_dir=args.img_dir, dst_dir=args.dst_dir, classes=args.classes, 
+            lbl_dir=args.lbl_dir, img_idx=args.img_idx, ann_idx=args.ann_idx, 
+            use_link=args.use_link, split=args.split, year=args.year, 
+            class_start_index=args.class_start_index
+        )
     elif args.mode == "voc2yolo":
         src_dir, dst_dir, classes, img_valid = args.src_dir, args.dst_dir, args.classes, args.img_valid
         voc2yolo(src_dir, dst_dir, classes, img_valid)

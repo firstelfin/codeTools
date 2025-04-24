@@ -9,12 +9,16 @@
 '''
 
 import math
+import time
 import psutil
+import shutil
+import cv2 as cv
+from loguru import logger
 from tqdm import tqdm
 from pathlib import Path, PosixPath
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from codeUtils.labelOperation.readLabel import parser_json
-from codeUtils.labelOperation.saveLabel import save_voc_label
+from codeUtils.labelOperation.readLabel import parser_json, read_txt
+from codeUtils.labelOperation.saveLabel import save_voc_label, save_json
 from codeUtils.tools.font_config import colorstr
 from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
 
@@ -229,8 +233,174 @@ def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, extra_keys: list = None)
                     l2v_bar.update()
 
 
-def labelme2coco(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
-    pass
+class Labelme2COCO(object):
+    """Convert labelme format to COCO format.
+    
+    Args:
+        img_dir (str): labelme format img file directory.
+        dst_dir (str): coco format file directory.
+        lbl_dir (str): labelme format label file directory. 默认与img_dir相同.
+        classes (str): yolo classes.txt file path.
+        use_link (bool): whether to use symbolic link to save images.
+        split (str): data split, 'train', 'val', 'test'.
+        year (str): year of dataset.
+        class_start_index (int): start index of class id. default is 0. lt 2.
+    """
+
+    def __init__(
+            self, img_dir: str = None, lbl_dir: str = None, dst_dir: str = None, classes: str = None, 
+            use_link: bool = False, split: str = 'train', 
+            year: str = None, class_start_index: int = 0
+        ):
+        assert class_start_index < 2, 'class_start_index should be lt 2.'
+        
+        self.img_dir = Path(img_dir)
+        self.lbl_dir = Path(lbl_dir) if lbl_dir is not None else self.img_dir
+        self.dst_dir = Path(dst_dir)
+        self.classes = classes
+        self.use_link = use_link
+        self.split = split
+        self.year = year if year is not None else ""
+        self.coco_images = dict()
+        self.coco_annotations = dict()
+        self.class_start_index = int(class_start_index)
+    
+    def load_classes(self):
+        names = read_txt(self.classes) if isinstance(self.classes, str) else self.classes
+        self.names = {i: name for i, name in enumerate(names)}
+        self.name2idx = {name: i for i, name in self.names.items()}
+        self.coco_images = {self.split: []}
+        self.coco_annotations = {self.split: []}
+
+    def load_items(self):
+        for img_file in self.img_dir.iterdir():
+            if img_file.suffix == ".json" or img_file.stem.startswith('.'):
+                continue
+            lbl_file = self.lbl_dir / f"{img_file.stem}.json"
+            yield img_file, lbl_file, self.split
+
+    def coco_prepare(self, img_file: Path, lbl_file: Path, split: str, img_id: int):
+        """coco数据集整备
+
+        :param Path img_file: 图片路径
+        :param Path lbl_file: 标签路径
+        :param str split: 数据集划分(不包含年份)
+        :param int img_id: 图片id
+        :raises ValueError: 标签格式错误
+        """
+
+        # 给COCO添加图片信息
+        src_img = cv.imread(str(img_file))
+        img_h, img_w = src_img.shape[:2]
+        img_info = {
+            'id': img_id,
+            'file_name': str(self.dst_dir / f"{split}{self.year}" / img_file.name),
+            'height': img_h,
+            'width': img_w,
+        }
+        self.coco_images[split].append(img_info)
+
+        # 给COCO添加标注信息
+        file_labels = None
+        for _ in range(3):
+            file_labels = parser_json(lbl_file)
+            if file_labels is not None:
+                break
+            
+        if file_labels is None:
+            file_labels = {"shapes": []}
+        
+        for label in file_labels["shapes"]:
+            if label["label"] not in self.name2idx:
+                continue
+            cls_id = self.name2idx[label["label"]]  # 类别id
+            [x_min, y_min], [x_max, y_max] = label["points"]
+            box_w, box_h = x_max - x_min, y_max - y_min
+            ann_info = {
+                "id": 0,
+                "image_id": img_id,
+                "category_id": cls_id+self.class_start_index,
+                "bbox": [x_min, y_min, box_w, box_h],
+                "iscrowd": 0,
+                "area": box_w * box_h,
+                "segmentation": [],
+            }
+            self.coco_annotations[split].append(ann_info)
+        
+        # 保存图片
+        img_link = self.dst_dir / f"{split}{self.year}" / img_file.name
+        img_link.parent.mkdir(exist_ok=True, parents=True)
+        if self.use_link:
+            if not img_link.exists():
+                img_link.symlink_to(img_file)
+        else:
+            shutil.copy(img_file, img_link)
+        return len(file_labels)
+
+    def anno_id_modify(self, start_index: int = 0):
+        for split in self.coco_annotations:
+            for ann in self.coco_annotations[split]:
+                ann['id'] = start_index
+                start_index += 1
+    
+    def save_coco_json(self, anno_file: Path, split: str):
+        coco_info = {
+            "description": f"COCO {self.year} Dataset",
+            "version": "1.0",
+            "year": self.year,
+            "contributor": "firstelfin",
+            "date_created": time.strftime("%Y/%m/%d", time.localtime()),
+        }
+        coco_images = self.coco_images[split]
+        coco_annotations = self.coco_annotations[split]
+        coco_dict = {
+            "info": coco_info,
+            "images": coco_images,
+            "annotations": coco_annotations,
+            "categories": [
+                {
+                    "id": i+self.class_start_index, 
+                    "name": name, 
+                    "supercategory": name
+                } for i, name in self.names.items()
+            ],
+        }
+        save_json(anno_file, coco_dict)
+        logger.info(f"save {split} coco json file {anno_file} success.")
+
+    def __call__(self, image_index: int = 0, anno_index: int = 0, *args, **kwds):
+        
+        res = []
+        with ThreadPoolExecutor() as executor:
+            for img_file, lbl_file, split in self.load_items():
+                convert_res = executor.submit(self.coco_prepare, img_file, lbl_file, split, image_index)
+                image_index += 1
+                res.append(convert_res)
+
+            # 等待所有任务完成
+            labelme_bar = tqdm(as_completed(res), total=len(res), desc='yolo2coco')
+            for convert_res in labelme_bar:
+                convert_res.result()
+                labelme_bar.set_postfix({'image_index': image_index})
+
+        # 保存COCO格式数据集
+        self.anno_id_modify(start_index=anno_index)
+        anno_dir = self.dst_dir / 'annotations'
+        anno_dir.mkdir(exist_ok=True, parents=True)
+
+        for split in self.coco_annotations:
+            anno_file = anno_dir / f"{split}{self.year}.json"
+            self.save_coco_json(anno_file=anno_file, split=split)
+
+
+def labelme2coco(
+        img_dir: PosixPath, dst_dir: PosixPath, classes: dict | str, 
+        lbl_dir: PosixPath = None, img_idx: int = 0, ann_idx: int = 0, 
+        use_link: bool = False, split: str = 'train', year: str = "", 
+        class_start_index: int = 0
+        ) -> None:
+    lbl2coco = Labelme2COCO(img_dir, lbl_dir, dst_dir, classes, use_link=use_link, split=split, year=year, class_start_index=class_start_index)
+    lbl2coco(image_index=img_idx, anno_index=ann_idx)
 
 
 def labelme2industai(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
