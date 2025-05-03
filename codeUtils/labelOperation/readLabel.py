@@ -82,10 +82,10 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
                 'truncated': int(obj.find('truncated').text) if obj.find('truncated') else 0,
                 'difficult': int(obj.find('difficult').text) if obj.find('difficult') else 0,
                 'bndbox': {
-                    'xmin': int(obj.find('bndbox').find('xmin').text),
-                    'ymin': int(obj.find('bndbox').find('ymin').text),
-                    'xmax': int(obj.find('bndbox').find('xmax').text),
-                    'ymax': int(obj.find('bndbox').find('ymax').text)
+                    'xmin': int(float((obj.find('bndbox').find('xmin').text))),
+                    'ymin': int(float((obj.find('bndbox').find('ymin').text))),
+                    'xmax': int(float((obj.find('bndbox').find('xmax').text))),
+                    'ymax': int(float((obj.find('bndbox').find('ymax').text)))
                 },
                 **{key: obj.find(key).text for key in extra_keys}
             } for obj in soup.find_all('object')

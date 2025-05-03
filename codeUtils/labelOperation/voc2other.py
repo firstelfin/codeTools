@@ -12,14 +12,16 @@ import math
 import psutil
 import cv2 as cv
 from tqdm import tqdm
-from pathlib import Path
+from pathlib import Path, PosixPath
 from loguru import logger
+from typing import Literal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.labelOperation.readLabel import read_voc, read_txt
 from codeUtils.labelOperation.saveLabel import save_labelme_label
 from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
 from codeUtils.tools.font_config import colorstr
+from codeUtils.labelOperation.converter import ToCOCO
 
 
 def get_voc_names(voc_file: str):
@@ -213,7 +215,7 @@ def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
     """
     dst_dir = Path(dst_dir)
     dst_dir.mkdir(exist_ok=True, parents=True)
-    
+
     tasks_num = len(list(Path(src_dir).rglob("*.xml")))
     v2l_desc = colorstr("bright_blue", "bold", "voc2labelme")
     cpu_num = max(4, psutil.cpu_count(logical=False) // 2)
@@ -249,3 +251,58 @@ def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
                         END_KEY: end_idx
                     })
                     v2l_bar.update()
+
+
+class VOC2COCO(ToCOCO):
+
+    def load_items(self):
+        return super().load_items()
+    
+    def instance_prepare(self, lbl_file, img_id, split):
+        """从voc格式标注文件中解析出实例信息
+
+        :param str lbl_file: voc格式标注文件路径
+        :param int img_id: 图像id
+        :param str split: coco数据集划分名称
+        :return list: 实例列表
+        """
+
+        file_labels = None
+        for _ in range(3):
+            file_labels = read_voc(lbl_file)
+            if file_labels is not None:
+                break
+            
+        if file_labels is None:
+            file_labels = {"object": []}
+
+        for label in file_labels["object"]:
+            if label["name"] not in self.name2idx:
+                continue
+            cls_id = self.name2idx[label["name"]]
+            x_min = label["bndbox"]["xmin"]
+            y_min = label["bndbox"]["ymin"]
+            x_max = label["bndbox"]["xmax"]
+            y_max = label["bndbox"]["ymax"]
+            box_w, box_h = x_max - x_min, y_max - y_min
+            ann_info = {
+                "id": 0,
+                "image_id": img_id,
+                "category_id": cls_id+self.class_start_index,
+                "bbox": [x_min, y_min, box_w, box_h],
+                "iscrowd": 0,
+                "area": box_w * box_h,
+                "segmentation": [],  # TODO: 实现分割信息
+            }
+            self.coco_annotations[split].append(ann_info)
+        return file_labels["object"]
+
+
+def voc2coco(
+        img_dir: PosixPath, dst_dir: PosixPath, classes: dict | str,
+        lbl_dir: PosixPath = None, img_idx: int = 0, ann_idx: int = 0,
+        use_link: bool = False, split: str = 'train', year: str = "",
+        class_start_index: int = 0
+        ) -> None:
+    lbl2coco = VOC2COCO(img_dir, lbl_dir, dst_dir, classes, use_link=use_link, split=split, year=year, class_start_index=class_start_index)
+    lbl2coco(image_index=img_idx, anno_index=ann_idx)

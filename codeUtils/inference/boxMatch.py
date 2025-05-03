@@ -75,11 +75,12 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
     update_items = dict()
     if classes is not None:
         for i, box in enumerate(gt_boxes):
-            box_cls = classes[box[0]]
+            cls_index = box[0] if isinstance(box[0], int) else classes.index(box[0])
+            box_cls = classes[cls_index]
             if box_cls not in update_items:
                 update_items[box_cls] = [0] * len(classes)
             if pred2gt_matrix.shape[0] and pred2gt_matrix[:, i].max():          # cls 和 box都匹配上的对象
-                update_items[box_cls][box[0]] += 1
+                update_items[box_cls][cls_index] += 1
                 continue
             if iou_matrix.shape[0] and iou_status_matrix[:, i].max():       # cbox匹配上，匹配不上cls的对象
                 pred_index = pred_boxes[iou_matrix[:, i].argmax()][0]
@@ -95,7 +96,8 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             #     continue
             # if iou_status_matrix[i, :].max():
             #     continue
-            update_items['background'][box[0]] += 1
+            cls_index = box[0] if isinstance(box[0], int) else classes.index(box[0])
+            update_items['background'][cls_index] += 1
 
     # 输出预测框和真值框的匹配情况
     match_object = {

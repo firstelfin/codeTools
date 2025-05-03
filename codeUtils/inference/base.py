@@ -13,7 +13,6 @@ import numpy as np
 from copy import deepcopy
 from typing import Literal
 from abc import ABC, abstractmethod
-from sklearn.cluster import KMeans
 from pathlib import Path, PosixPath
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
@@ -526,7 +525,12 @@ class StatisticBase(object):
         :param class_file: 类别文件路径
         :type class_file: str
         """
-        classes = read_txt(class_file)
+        if isinstance(class_file, (str, PosixPath)):
+            classes = read_txt(class_file)
+        elif isinstance(class_file, list):
+            classes = class_file
+        else:
+            raise ValueError(f"不支持的类别文件类型{type(class_file)}")
         classes.append('background')
         self.backgroud = True  # 标记是否有背景类
         return classes
@@ -557,7 +561,7 @@ class StatisticBase(object):
             for file in sub_datasets.iterdir():
                 if file.suffix != '.json':
                     continue
-                lbl_file = Path(self.src_gt[i]) / (file.stem + self.get_gt_suffix())
+                lbl_file = Path(self.src_gt[i]) / (file.stem + self.gt_suffix)
                 yield file, lbl_file
 
     def load_lbl_data(self, lbl_file: str, suffix: str) -> dict:
@@ -660,8 +664,8 @@ class StatisticBase(object):
             self.matrix.matrix[:, key_index] += value
 
     def match(self, pred_file: str, gt_file: str, **kwargs):
-        pred_entities = self.load_lbl_data(pred_file)
-        gt_entities = self.load_lbl_data(gt_file)
+        pred_entities = self.load_lbl_data(pred_file, self.pred_suffix)
+        gt_entities = self.load_lbl_data(gt_file, self.gt_suffix)
         img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
         # 匹配预测结果和标签文件
         pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
@@ -1100,6 +1104,7 @@ class PresetAdaptiveWindow(object):
     """
 
     def __init__(self, window_num: int, same_ratio: bool = False, keep_size: bool = False, *args, **kwargs):
+        self.KMeans = self.check_import()
         self.keep_size = keep_size
         self.window_num = window_num
         assert window_num > 0, "window_num should be greater than 0"
@@ -1224,6 +1229,13 @@ class PresetAdaptiveWindow(object):
             windows[i] = (win_x1, win_y1, win_x2, win_y2)
         return windows
 
+    def check_import(self):
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            raise ImportError("Please install sklearn: [pip install scikit-learn] to use PresetAdaptiveWindow")
+        return KMeans
+    
     def __call__(self, bboxes: list[list], window_size: tuple[int], image_shape=None, *args, **kwargs):
         same_ratio = self.same_ratio if "same_ratio" not in kwargs else kwargs["same_ratio"]
         keep_size = self.keep_size if "keep_size" not in kwargs else kwargs["keep_size"]
@@ -1238,7 +1250,7 @@ class PresetAdaptiveWindow(object):
         if k == 0:
             return []
 
-        k_means = KMeans(n_clusters=k, random_state=0).fit(centers)
+        k_means = self.KMeans(n_clusters=k, random_state=0).fit(centers)
         labels = k_means.labels_
 
         # 为每个聚类计算覆盖所有目标的最小窗口, 并合并较小的类外接矩形框
