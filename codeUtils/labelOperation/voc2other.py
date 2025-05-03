@@ -256,7 +256,7 @@ def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
 class VOC2COCO(ToCOCO):
 
     def load_items(self):
-        return super().load_items()
+        return super(VOC2COCO, self).load_items(self)
     
     def instance_prepare(self, lbl_file, img_id, split):
         """从voc格式标注文件中解析出实例信息
