@@ -8,6 +8,11 @@
 @Desc    :   None
 '''
 
+from loguru import logger
+from pathlib import Path
+from codeUtils.labelOperation.converter import COCOToAll
+from codeUtils.labelOperation.saveLabel import save_voc_label
+
 
 def coco_show():
     coco_dict = {
@@ -118,3 +123,89 @@ def coco_show():
     }
     print(coco_dict)
     return coco_dict
+
+
+class COCO2Labelme(COCOToAll):
+
+    def __init__(self, img_dir: str, lbl_file: str, dst_dir: str):
+        super().__init__(img_dir, lbl_file, dst_dir)
+    
+    def save_label(self, img_path: str, labelme_dict: dict, **kwargs):
+        super().save_label(img_path, labelme_dict)
+
+
+class COCO2VOC(COCOToAll):
+
+    def __init__(self, img_dir: str, lbl_file: str, dst_dir: str):
+        super().__init__(img_dir, lbl_file, dst_dir)
+    
+    def save_label(self, img_path: str, labelme_dict: dict, extra_keys: list = []):
+        xml_file = self.dst_dir / f"{Path(img_path).stem}.xml"
+        voc_dict = {
+            'folder': self.dst_dir.name,
+            'filename': Path(img_path).name,
+            'path': Path(img_path).name,
+            'source': {"database": "Unknown"},
+            'segmented': 0,  # TODO: check if it's 0 or 1
+            'size': {
+                'width': int(labelme_dict['imageWidth']),
+                'height': int(labelme_dict['imageHeight']),
+                'depth': 3
+            },
+            'object': [
+                {
+                    'name': obj["label"],
+                    'pose': "Unspecified",
+                    'truncated': 0,
+                    'difficult': 0,
+                    'bndbox': {
+                        'xmin': int(obj["points"][0][0]),
+                        'ymin': int(obj["points"][0][1]),
+                        'xmax': int(obj["points"][1][0]),
+                        'ymax': int(obj["points"][1][1]),
+                    },
+                    **{key: obj.find(key).text for key in extra_keys}
+                } for obj in labelme_dict['shapes']
+            ]
+        }
+        for obj in labelme_dict['shapes']:
+            if obj['shape_type'] == "rectangle":
+                voc_dict['object'].append({
+                    'name': obj["label"],
+                    'pose': "Unspecified",
+                    'truncated': 0,
+                    'difficult': 0,
+                    'bndbox': {
+                        'xmin': int(obj["points"][0][0]),
+                        'ymin': int(obj["points"][0][1]),
+                        'xmax': int(obj["points"][1][0]),
+                        'ymax': int(obj["points"][1][1]),
+                    },
+                    **{key: obj.find(key).text for key in extra_keys}
+                })
+            elif obj['shape_type'] == "polygon":
+                logger.warning(f"Unsupported shape type: {obj['shape_type']}")
+                # voc_dict['object'].append({
+                #     'name': obj["label"],
+                #     'pose': "Unspecified",
+                #     'truncated': 0,
+                #     'difficult': 0,
+                #     'polygon': [  # Note: polygon is a list of points, 自定义数据格式，暂时未支持
+                #         {'x': int(point[0]), 'y': int(point[1])} for point in obj["points"]
+                #     ],
+                #     **{key: obj.find(key).text for key in extra_keys}
+                # })
+            else:
+                logger.warning(f"Unsupported shape type: {obj['shape_type']}")
+        save_voc_label(xml_file, voc_dict)
+
+
+def coco2labelme(img_dir: str, lbl_file: str, dst_dir: str):
+    converter = COCO2Labelme(img_dir, lbl_file, dst_dir)
+    converter()
+
+
+def coco2voc(img_dir: str, lbl_file: str, dst_dir: str, extra_keys: list = []):
+    converter = COCO2VOC(img_dir, lbl_file, dst_dir)
+    converter(extra_keys=extra_keys)
+

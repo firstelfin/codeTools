@@ -14,6 +14,7 @@ from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
 from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc2coco, voc_gen_classes
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
 from codeUtils.labelOperation.yolo2other import yolo2coco
+from codeUtils.labelOperation.coco2other import coco2labelme, coco2voc
 from codeUtils.tools.font_config import font_download
 
 
@@ -48,18 +49,25 @@ def elfin():
     elif args.mode == "voc2yoloClasses":
         src_dir, dst_file = args.src_dir, args.dst_file
         voc_gen_classes(src_dir, dst_file)
-    elif args.mode == "font":
-        if args.download:
-            font_download()
-    elif args.mode == "cutImg":
-        cut_op = CutImgFromLabel(args.src_dir, args.dst_dir, pattern=args.pattern, target_size=args.size)
-        cut_op(img_dir_name=args.img_dir_name, lbl_dir_name=args.lbl_dir_name)
     elif args.mode == "yolo2coco":
         yolo2coco(
             src_dir=args.src_dir, dst_dir=args.dst_dir, classes=args.classes, data=args.data, 
             use_link=args.use_link, split=args.split, class_start_index=args.class_start_index, 
             image_index=args.image_index, anno_index=args.anno_index
         )
+    elif args.mode == "coco2labelme":
+        coco2labelme(args.img_dir, args.lbl_file, args.dst_dir)
+        pass
+    elif args.mode == "coco2voc":
+        coco2voc(args.img_dir, args.lbl_file, args.dst_dir, args.extra_keys)
+        pass
+    elif args.mode == "font":
+        if args.download:
+            font_download()
+    elif args.mode == "cutImg":
+        cut_op = CutImgFromLabel(args.src_dir, args.dst_dir, pattern=args.pattern, target_size=args.size)
+        cut_op(img_dir_name=args.img_dir_name, lbl_dir_name=args.lbl_dir_name)
+    
     elif args.mode == "yoloLabelExclude":
         include_classes, data_yaml = args.include_classes, args.data_yaml
         yle = YoloLabelExclude(include_classes=include_classes, data_yaml=data_yaml)

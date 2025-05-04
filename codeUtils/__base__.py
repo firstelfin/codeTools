@@ -48,6 +48,22 @@ def labelme2coco_set_args(labelme2coco_parser):
     to_coco_set_args(labelme2coco_config)
 
 
+def from_coco_set_args(from_coco_config):
+    from_coco_config.add_argument('img_dir', type=str, help='coco images directory.')
+    from_coco_config.add_argument('lbl_file', type=str, help='coco annotations file.')
+    from_coco_config.add_argument('dst_dir', type=str, help='save directory.')
+
+
+def coco2labelme_set_args(coco2labelme_parser):
+    coco2labelme_config = coco2labelme_parser.add_parser('coco2labelme', help='🔁. coco to labelme format')
+    from_coco_set_args(coco2labelme_config)
+
+def coco2voc_set_args(coco2voc_parser):
+    coco2voc_config = coco2voc_parser.add_parser('coco2voc', help='🔁. coco to voc format')
+    from_coco_set_args(coco2voc_config)
+    coco2voc_config.add_argument('--extra_keys', nargs="*", type=list, default=[], help='extra keys to add to voc xml file.')
+
+
 def yolo_label_exclude_set_args(yolo_label_exclude_parser):
     yolo_label_exclude_config = yolo_label_exclude_parser.add_parser('yoloLabelExclude', help='exclude some labels from yolo label')
     yolo_label_exclude_config.add_argument('include_classes', nargs='+', type=int, help='include classes id list, i.e.: 1 2 4.')
@@ -133,6 +149,8 @@ def set_args():
     voc2coco_set_args(sub_command_parser)
     voc2labelme_set_args(sub_command_parser)
     voc_gen_classes_set_args(sub_command_parser)
+    coco2labelme_set_args(sub_command_parser)
+    coco2voc_set_args(sub_command_parser)
     yolo2coco_set_args(sub_command_parser)
     yolo_label_exclude_set_args(sub_command_parser)
     font_download_set_args(sub_command_parser)

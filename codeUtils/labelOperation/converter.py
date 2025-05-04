@@ -8,6 +8,7 @@
 @Desc    :   数据转换基类
 '''
 
+import os
 import time
 import shutil
 import cv2 as cv
@@ -19,7 +20,7 @@ from pathlib import Path, PosixPath
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from codeUtils.labelOperation.readLabel import read_txt, parser_json
-from codeUtils.labelOperation.saveLabel import save_json
+from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label
 
 # @dataclass
 # class StandardData(object):
@@ -323,3 +324,100 @@ class ToCOCO(ABC):
         for split in self.coco_annotations:
             anno_file = anno_dir / f"{split}{self.year}.json"
             self.save_coco_json(anno_file=anno_file, split=split)
+
+
+class COCOToAll(ABC):
+
+    def __init__(self, img_dir: str, lbl_file: str, dst_dir: str):
+        self.img_dir = Path(img_dir)
+        self.lbl_file = Path(lbl_file)
+        self.dst_dir = Path(dst_dir)
+        self.dst_dir.mkdir(exist_ok=True, parents=True)
+        self.coco_names = None
+        self.coco_instances = dict()
+        self._post_init()
+        super().__init__()
+
+    def _post_init(self):
+        # 加载COCO数据集
+        self.coco_dict = parser_json(self.lbl_file)
+        if self.coco_dict is None:
+            raise ValueError("Invalid COCO format.")
+        self.coco_names = {cat['id']: cat['name'] for cat in self.coco_dict['categories']}
+        coco_init_bar = tqdm(self.coco_dict['images'], desc='COCO init', colour='#CD8500')
+        for img_info in coco_init_bar:
+            self.coco_instances[self.coco_names[img_info['id']]] = {
+                'imagePath': img_info['file_name'],
+                'imageHeight': img_info['height'],
+                'imageWidth': img_info['width'],
+                'shapes': []
+            }
+            for obj in self.coco_dict['annotations']:
+                if obj['image_id'] != img_info['id']:
+                    continue
+                seg_points_num = sum([sum(obj['segmentation'][i]) for i in range(len(obj['segmentation']))]) // 2
+                is_rectangle = seg_points_num <= 2
+                points = []
+                if not is_rectangle:
+                    for i in range(len(obj['segmentation'])):
+                        seg_i = [
+                            [obj['segmentation'][i][j], obj['segmentation'][i][j+1]]
+                            for j in range(0, len(obj['segmentation'][i]), 2)
+                        ]
+                        if seg_i[0] != seg_i[-1]:
+                            seg_i.append(seg_i[0])
+                        points += seg_i
+                else:
+                    points = [
+                        [obj['bbox'][0], obj['bbox'][1]],
+                        [obj['bbox'][0]+obj['bbox'][2], obj['bbox'][1]+obj['bbox'][3]],
+                    ]
+                self.coco_instances[img_info['id']]['shapes'].append({
+                    "label": self.coco_names[obj['category_id']],
+                    "points": points,
+                    "group_id": None,
+                    "shape_type": "rectangle" if is_rectangle else "polygon",
+                    "flags": {}
+                })
+
+    @abstractmethod
+    def save_label(self, img_path: str, labelme_dict: dict):
+        save_label_file = self.dst_dir / f"{Path(img_path).stem}.json"
+        save_labelme_label(save_label_file, labelme_dict)
+
+    def __call__(self, *args, **kwargs):
+        cpu_num = max(os.cpu_count() // 2, 6)
+        error_list = []
+        with ThreadPoolExecutor(max_workers=cpu_num) as executor:
+            
+            res = []
+            for img_path, labelme_dict in self.coco_instances.items():
+                res.append(executor.submit(self.save_label, img_path, labelme_dict, kwargs.get("extra_keys", [])))
+            
+            call_bar = tqdm(
+                as_completed(res),
+                total=len(res),
+                colour='#CD8500',
+                desc=self.__class__.__name__
+            )
+            for cb in call_bar:
+                try:
+                    cb.result(timeout=60)
+                except Exception as e:
+                    error_list.append((img_path, e))
+                call_bar.set_postfix({'errorNum': len(error_list)})
+
+            if error_list:
+                logger.error(f"Retrying {len(error_list)} failed tasks.")
+                new_res = [
+                    executor.submit(self.save_label, fail.img_path, fail.labelme_dict, fail.extra_keys) for fail in error_list
+                ]
+                for fail_res in as_completed(new_res):
+                    try:
+                        fail_res.result(timeout=60)
+                    except Exception as e:
+                        logger.error(f"Failed to save {img_path}: {e}")
+
+
+
+
