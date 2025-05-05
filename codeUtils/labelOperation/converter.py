@@ -167,19 +167,19 @@ class ToCOCO(ABC):
             raise ValueError("Invalid split type.")
 
     @staticmethod
-    def load_items(self):
+    def load_items(self, suffix: str = ".json"):
         if isinstance(self.img_dir, PosixPath):
             for img_file in self.img_dir.iterdir():
-                if img_file.suffix == ".json" or img_file.stem.startswith('.'):
+                if img_file.suffix == suffix or img_file.stem.startswith('.'):
                     continue
-                lbl_file = self.lbl_dir / f"{img_file.stem}.json"
+                lbl_file = self.lbl_dir / f"{img_file.stem}{suffix}"
                 yield img_file, lbl_file, self.split
         else:
             for img_dir in self.img_dir:
                 for img_file in img_dir.iterdir():
-                    if img_file.suffix == ".json" or img_file.stem.startswith('.'):
+                    if img_file.suffix == suffix or img_file.stem.startswith('.'):
                         continue
-                    lbl_file = self.lbl_dir / img_dir.name / f"{img_file.stem}.json"
+                    lbl_file = self.lbl_dir / img_dir.name / f"{img_file.stem}{suffix}"
                     yield img_file, lbl_file, self.split
 
     @abstractmethod
@@ -346,7 +346,7 @@ class COCOToAll(ABC):
         self.coco_names = {cat['id']: cat['name'] for cat in self.coco_dict['categories']}
         coco_init_bar = tqdm(self.coco_dict['images'], desc='COCO init', colour='#CD8500')
         for img_info in coco_init_bar:
-            self.coco_instances[self.coco_names[img_info['id']]] = {
+            self.coco_instances[img_info['file_name']] = {
                 'imagePath': img_info['file_name'],
                 'imageHeight': img_info['height'],
                 'imageWidth': img_info['width'],
@@ -372,7 +372,7 @@ class COCOToAll(ABC):
                         [obj['bbox'][0], obj['bbox'][1]],
                         [obj['bbox'][0]+obj['bbox'][2], obj['bbox'][1]+obj['bbox'][3]],
                     ]
-                self.coco_instances[img_info['id']]['shapes'].append({
+                self.coco_instances[img_info['file_name']]['shapes'].append({
                     "label": self.coco_names[obj['category_id']],
                     "points": points,
                     "group_id": None,

@@ -57,10 +57,8 @@ def elfin():
         )
     elif args.mode == "coco2labelme":
         coco2labelme(args.img_dir, args.lbl_file, args.dst_dir)
-        pass
     elif args.mode == "coco2voc":
         coco2voc(args.img_dir, args.lbl_file, args.dst_dir, args.extra_keys)
-        pass
     elif args.mode == "font":
         if args.download:
             font_download()

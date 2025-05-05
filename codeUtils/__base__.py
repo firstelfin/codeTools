@@ -31,8 +31,8 @@ def labelme2yolo_set_args(labelme2yolo_parser):
 
 
 def to_coco_set_args(to_coco_config):
-    to_coco_config.add_argument('img_dir', type=str, help='labelme images directory.')
-    to_coco_config.add_argument('--lbl_dir', type=str, default=None, help='labelme annotations directory.')
+    to_coco_config.add_argument('img_dir', type=str, help='source images directory.')
+    to_coco_config.add_argument('--lbl_dir', type=str, default=None, help='source annotations directory.')
     to_coco_config.add_argument('dst_dir', type=str, help='coco format save directory.')
     to_coco_config.add_argument('classes', type=str, help='yolo classes.txt format file.')
     to_coco_config.add_argument('--use_link', type=bool, default=False, help='use symlink to save images. default: False.')
