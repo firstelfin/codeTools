@@ -10,6 +10,7 @@
 
 from loguru import logger
 from tqdm import tqdm
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from codeUtils.tools.fontConfig import colorstr
 from codeUtils.callback.tqdmCallback import TqdmFutureCallback
@@ -33,17 +34,21 @@ class FutureBar(object):
         ):
         self.max_workers = max_workers
         self.use_process = use_process
-        self.bar = tqdm(
-            iterable=iterable, total=total, 
-            desc=colorstr("bright_blue", "bold", desc) if isinstance(desc, str) else desc, 
-            leave=leave, file=file, ncols=ncols, mininterval=mininterval, colour=colour,
-            maxinterval=maxinterval, miniters=miniters, ascii=ascii, disable=disable, 
-            unit=unit, unit_scale=unit_scale, dynamic_ncols=dynamic_ncols, smoothing=smoothing, 
-            bar_format=bar_format, initial=initial, position=position, postfix=postfix, 
-            unit_divisor=unit_divisor, write_bytes=write_bytes, lock_args=lock_args, nrows=nrows, 
-            delay=delay, gui=gui, **kwargs
-        )
         self.bar_callback = TqdmFutureCallback(timeout=timeout)
+        self.bar_kwargs = {
+            "iterable": iterable, "total": total, "desc": desc, "colour": colour,
+            "leave": leave, "file": file, "ncols": ncols, "mininterval": mininterval,
+            "maxinterval": maxinterval, "miniters": miniters, "ascii": ascii, "disable": disable,
+            "unit": unit, "unit_scale": unit_scale, "dynamic_ncols": dynamic_ncols, "smoothing": smoothing,
+            "bar_format": bar_format, "initial": initial, "position": position, "postfix": postfix,
+            "unit_divisor": unit_divisor, "write_bytes": write_bytes, "lock_args": lock_args, "nrows": nrows,
+            "delay": delay, "gui": gui,
+        }
+        self.bar_kwargs.update(kwargs)
+    
+    def init_bar(self):
+        self.bar = tqdm(**self.bar_kwargs)
+        return self.bar
 
     def get_concurrent_executor(self):
         if self.use_process:
@@ -67,14 +72,16 @@ class FutureBar(object):
         :param callable exec_func: 执行函数
         :param iterable params: 参数列表[可迭代对象], 每个元素包含一个参数元组(args, kwargs)
         """
+        total = len(list(params)) if "total" not in kwargs else kwargs["total"]
+        self.bar_kwargs.update({"total": total})
+        self.bar = self.init_bar()
         with self.get_concurrent_executor() as executor:
             for param_args, param_kwargs in params:
                 future = executor.submit(exec_func, *param_args, **param_kwargs)
-                future.add_done_callback(
-                    self.bar_callback(bar=self.bar, param_args=param_args, param_kwargs=param_kwargs)
-                )
+                callback = partial(self.bar_callback, bar=self.bar, param_args=param_args, param_kwargs=param_kwargs)
+                future.add_done_callback(callback)
 
         self.bar.close()
-        self.retry_failed_tasks()
+        self.retry_failed_tasks(exec_func=exec_func)
 
 
