@@ -18,9 +18,9 @@ warnings.filterwarnings('ignore')
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from codeUtils.tools.font_config import colorstr
+from codeUtils.tools.fontConfig import colorstr
 from codeUtils.tools.torchTools import torch_empty_cache
-from codeUtils.tools.tqdm_conf import cpu_num, BATCH_KEY, START_KEY, END_KEY, TPP, FPP, TPG, TNG, GTN, PRN
+from codeUtils.tools.tqdmConf import cpu_num, BATCH_KEY, START_KEY, END_KEY, TPP, FPP, TPG, TNG, GTN, PRN
 from codeUtils.__base__ import strPath
 from codeUtils.labelOperation.readLabel import read_voc, read_yolo, read_txt, parser_json
 from codeUtils.labelOperation.saveLabel import save_labelme_label
@@ -538,9 +538,7 @@ class StatisticBase(object):
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
 
-        :raises ValueError: _description_
-        :yield: _description_
-        :rtype: _type_
+        :yield: 预测文件, 标签文件元组
         """
 
         # 统计所有的预测结果文件, 没有预测预测文件也会保存
@@ -552,14 +550,14 @@ class StatisticBase(object):
             if not sub_datasets.exists():
                 raise ValueError(f"预测结果目录{sub_datasets}不存在")
             for file in sub_datasets.iterdir():
-                if file.suffix != '.json':
+                if file.suffix != self.pred_suffix:
                     continue
                 total_num += 1
         yield total_num
 
         for i, sub_datasets in enumerate(datasets):
             for file in sub_datasets.iterdir():
-                if file.suffix != '.json':
+                if file.suffix != self.pred_suffix:
                     continue
                 lbl_file = Path(self.src_gt[i]) / (file.stem + self.gt_suffix)
                 yield file, lbl_file

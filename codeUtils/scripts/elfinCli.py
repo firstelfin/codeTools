@@ -15,7 +15,7 @@ from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc2coco, 
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
 from codeUtils.labelOperation.yolo2other import yolo2coco
 from codeUtils.labelOperation.coco2other import coco2labelme, coco2voc
-from codeUtils.tools.font_config import font_download
+from codeUtils.tools.fontConfig import font_download
 
 
 def elfin():

@@ -8,11 +8,11 @@
 @Desc    :   None
 '''
 
-from . import font_config
+from . import fontConfig
 from . import cache_file
 
 def is_async_function(func):
     return func.__code__.co_flags & 0x80  # 检查CO_ASYNC标志
 
 
-__all__ = ["is_async_function", "font_config", "cache_file"]
+__all__ = ["is_async_function", "fontConfig", "cache_file"]

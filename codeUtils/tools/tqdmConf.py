@@ -9,7 +9,7 @@
 '''
 
 import psutil
-from codeUtils.tools.font_config import colorstr
+from codeUtils.tools.fontConfig import colorstr
 
 BATCH_KEY = colorstr("yellow", "bold", "batch")
 START_KEY = colorstr("yellow", "bold", "startIdx")

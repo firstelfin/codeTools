@@ -18,8 +18,8 @@ from numpy import ndarray
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from codeUtils.tools.font_config import colorstr
-from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
+from codeUtils.tools.fontConfig import colorstr
+from codeUtils.tools.tqdmConf import BATCH_KEY, START_KEY, END_KEY
 from codeUtils.matchFactory.bboxMatch import box_valid, ios_box, rel_box
 from codeUtils.labelOperation.readLabel import read_voc, read_yolo
 from codeUtils.labelOperation.saveLabel import save_voc_label, save_yolo_label, save_json

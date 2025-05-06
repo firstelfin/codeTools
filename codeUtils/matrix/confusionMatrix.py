@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from loguru import logger
 from pathlib import Path
-from codeUtils.tools.font_config import set_plt
+from codeUtils.tools.fontConfig import set_plt
 
 
 class ConfusionMatrix:

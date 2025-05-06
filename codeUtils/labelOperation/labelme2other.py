@@ -19,8 +19,8 @@ from pathlib import Path, PosixPath
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from codeUtils.labelOperation.readLabel import parser_json, read_txt
 from codeUtils.labelOperation.saveLabel import save_voc_label, save_json
-from codeUtils.tools.font_config import colorstr
-from codeUtils.tools.tqdm_conf import BATCH_KEY, START_KEY, END_KEY
+from codeUtils.tools.fontConfig import colorstr
+from codeUtils.tools.tqdmConf import BATCH_KEY, START_KEY, END_KEY
 
 
 def labelme_show():
