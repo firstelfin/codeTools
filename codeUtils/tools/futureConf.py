@@ -11,6 +11,7 @@
 from loguru import logger
 from tqdm import tqdm
 from functools import partial
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from codeUtils.tools.fontConfig import colorstr
 from codeUtils.callback.tqdmCallback import TqdmFutureCallback
@@ -19,7 +20,11 @@ from codeUtils.callback.tqdmCallback import TqdmFutureCallback
 class FutureBar(object):
     """多进程、多线程并发执行任务, 并显示进度条. 进度条统一管理类, 异步对象错误收集重试自动化.
 
-    :param _type_ object: _description_
+    :param int max_workers: 最大并发数, 默认为None, 自动根据CPU核数设置
+    :param bool use_process: 是否使用多进程, 默认为False, 即使用多线程
+    :param int timeout: 异步任务超时时间, 默认为20秒
+
+    其他参数全部是
     """
 
     def __init__(
@@ -35,8 +40,9 @@ class FutureBar(object):
         self.max_workers = max_workers
         self.use_process = use_process
         self.bar_callback = TqdmFutureCallback(timeout=timeout)
+        new_desc = colorstr("bright_blue", "bold", desc) if isinstance(desc, str) else desc
         self.bar_kwargs = {
-            "iterable": iterable, "total": total, "desc": desc, "colour": colour,
+            "iterable": iterable, "total": total, "desc": new_desc, "colour": colour,
             "leave": leave, "file": file, "ncols": ncols, "mininterval": mininterval,
             "maxinterval": maxinterval, "miniters": miniters, "ascii": ascii, "disable": disable,
             "unit": unit, "unit_scale": unit_scale, "dynamic_ncols": dynamic_ncols, "smoothing": smoothing,
@@ -72,7 +78,7 @@ class FutureBar(object):
         :param callable exec_func: 执行函数
         :param iterable params: 参数列表[可迭代对象], 每个元素包含一个参数元组(args, kwargs)
         """
-        total = len(list(params)) if "total" not in kwargs else kwargs["total"]
+        total = len(list(deepcopy(params))) if "total" not in kwargs else kwargs["total"]
         self.bar_kwargs.update({"total": total})
         self.bar = self.init_bar()
         with self.get_concurrent_executor() as executor:
