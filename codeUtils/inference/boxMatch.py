@@ -79,15 +79,17 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             box_cls = classes[cls_index]
             if box_cls not in update_items:
                 update_items[box_cls] = [0] * len(classes)
-            if pred2gt_matrix.shape[0] and pred2gt_matrix[:, i].max():          # cls 和 box都匹配上的对象
+            if pred2gt_matrix.shape[0] and pred2gt_matrix[:, i].max():   # cls 和 box都匹配上的对象
                 update_items[box_cls][cls_index] += 1
                 continue
-            if iou_matrix.shape[0] and iou_status_matrix[:, i].max():       # cbox匹配上，匹配不上cls的对象
+            if iou_matrix.shape[0] and iou_status_matrix[:, i].max():    # box匹配上，匹配不上cls的对象
                 pred_index = pred_boxes[iou_matrix[:, i].argmax()][0]
+                if isinstance(pred_index, str):                          # 标签为字符串时, 需要将标签转换为索引
+                    pred_index = classes.index(pred_index)
                 update_items[box_cls][pred_index] += 1
             else:
-                update_items[box_cls][-1] += 1      # 未匹配上的对象, 预测为backgroud
-        # 开始统计backgroud的数量
+                update_items[box_cls][-1] += 1      # 未匹配上的对象, 预测为background
+        # 开始统计background的数量
         update_items['background'] = [0] * len(classes)
         for i, box in enumerate(pred_boxes):
             if iou_matrix.shape[1] and (pred2gt_matrix[i, :].max() or iou_status_matrix[i, :].max()):

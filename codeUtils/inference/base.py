@@ -508,8 +508,8 @@ class StatisticBase(object):
         assert pred_suffix in self.suffix_load_func, f"不支持的预测文件后缀名{pred_suffix}"
         self.src_gt = path_list_valid(src_gt)
         self.src_pred = path_list_valid(src_pred)
-        self.dst_dir = get_exp_dir(dst_dir, project + "Statistic")
-        self.project = project + "Statistic"
+        self.dst_dir = get_exp_dir(dst_dir, project + "_Statistic")
+        self.project = project + "_Statistic"
         self.use_ios = use_ios
         self.backgroud = False
         self.classes = self.get_classes(classes)
@@ -706,7 +706,7 @@ class StatisticBase(object):
         epoch_num = math.ceil(total_num / batch_size)
 
         with ThreadPoolExecutor(max_workers=cpu_num) as executor:
-            with tqdm(total=total_num, desc=bar_desc, unit='img', leave=True, position=0, dynamic_ncols=True) as epoch_bar:
+            with tqdm(total=total_num, desc=bar_desc, unit='img', leave=True, position=0, dynamic_ncols=True, colour="#CD8500") as epoch_bar:
                 for epoch in range(epoch_num):
                     start_idx = epoch * batch_size
                     end_idx = min(total_num, (epoch + 1) * batch_size)
