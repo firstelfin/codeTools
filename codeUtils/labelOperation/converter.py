@@ -322,19 +322,6 @@ class ToCOCO(ABC):
         cpu_num = max(os.cpu_count() // 2, 6)
         exec_bar = FutureBar(max_workers=cpu_num, timeout=20, desc=self.__class__.__name__)
         exec_bar(self.coco_prepare, all_async_items, total=self.img_idx-self.start_img_idx)
-        
-        # res = []
-        # with ThreadPoolExecutor() as executor:
-        #     for img_file, lbl_file, split in self.load_items():
-        #         convert_res = executor.submit(self.coco_prepare, img_file, lbl_file, split, image_index)
-        #         image_index += 1
-        #         res.append(convert_res)
-
-        #     # 等待所有任务完成
-        #     labelme_bar = tqdm(as_completed(res), total=len(res), desc=self.__class__.__name__)
-        #     for convert_res in labelme_bar:
-        #         convert_res.result()
-        #         labelme_bar.set_postfix({'image_index': image_index})
 
         # 保存COCO格式数据集
         self.anno_id_modify()
