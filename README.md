@@ -51,6 +51,8 @@ twine upload dist/*
 
 ## 本地快速安装
 
+方法一：
+
 ```shell
 rm -rf build
 pip uninstall elfinCodeUtils -y
@@ -58,3 +60,10 @@ python -m build -sw -nx
 pip install dist/elfinCodeUtils-0.1.10.2-py3-none-any.whl
 ```
 
+方法二：
+
+```shell
+$ git clone https://github.com/firstelfin/codeTools.git
+$ cd codeTools
+$ pip install .
+```

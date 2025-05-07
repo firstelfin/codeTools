@@ -620,32 +620,34 @@ class StatisticBase(object):
             result.append([label, x1, y1, x2, y2])
         return result
     
-    def middle2match(self, gt_entities: list | dict, suffix: str = None, **kwargs) -> list:
+    def middle2match(self, entities: list | dict, suffix: str = None, **kwargs) -> list:
         """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
 
-        :param list gt_entities: 各种格式的标签直接加载的对象
+        :param list entities: 各种格式的标签直接加载的对象
         :param str suffix: 标签文件后缀名
         :return list: 示例列表
         """
+        if entities is None:
+            return []
         if suffix is None or suffix == ".json":
-            return self.labelme2match(gt_entities, **kwargs)
+            return self.labelme2match(entities, **kwargs)
         elif suffix == ".txt":
-            return self.yolo2match(gt_entities, **kwargs)
+            return self.yolo2match(entities, **kwargs)
         elif suffix == ".xml":
-            return self.voc2match(gt_entities, **kwargs)
+            return self.voc2match(entities, **kwargs)
         else:
             raise ValueError(f"不支持的标签文件后缀名{suffix}")
 
     def get_image_shape(self, pred_entities, gt_entities, **kwargs) -> tuple:
         if not self.is_yolo_lbl:
             img_shape = (1, 1)
-        if self.pred_suffix == ".json":
+        if self.pred_suffix == ".json" and pred_entities is not None:
             img_shape = (pred_entities['imageHeight'], pred_entities['imageWidth'])
-        elif self.pred_suffix == ".xml":
+        elif self.pred_suffix == ".xml" and pred_entities is not None:
             img_shape = (pred_entities["size"]["height"], pred_entities["size"]["width"])
-        elif self.gt_suffix == ".json":
+        elif self.gt_suffix == ".json" and gt_entities is not None:
             img_shape = (gt_entities['imageHeight'], gt_entities['imageWidth'])
-        elif self.gt_suffix == ".xml":
+        elif self.gt_suffix == ".xml" and gt_entities is not None:
             img_shape = (gt_entities["size"]["height"], gt_entities["size"]["width"])
         else:
             img_shape = (1, 1)
