@@ -264,6 +264,7 @@ class Labelme2COCO(object):
         self.coco_images = dict()
         self.coco_annotations = dict()
         self.class_start_index = int(class_start_index)
+        self.load_classes()
     
     def load_classes(self):
         names = read_txt(self.classes) if isinstance(self.classes, str) else self.classes
@@ -378,7 +379,7 @@ class Labelme2COCO(object):
                 res.append(convert_res)
 
             # 等待所有任务完成
-            labelme_bar = tqdm(as_completed(res), total=len(res), desc='yolo2coco')
+            labelme_bar = tqdm(as_completed(res), total=len(res), desc='labelme2coco')
             for convert_res in labelme_bar:
                 convert_res.result()
                 labelme_bar.set_postfix({'image_index': image_index})
