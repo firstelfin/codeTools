@@ -173,17 +173,20 @@ class ToCOCO(ABC):
 
     def load_items(self, suffix: str = ".json"):
         """加载并发处理函数的参数, 参数分两部分回传, 分别为args和kwargs.
+        
+        load_items函数返回禁止使用生成器!
 
         :param str suffix: 文件后缀, defaults to ".json", 默认处理labelme格式的标签
         """
-        
+
+        res = []
         if isinstance(self.img_dir, PosixPath):
             for img_file in self.img_dir.iterdir():
                 if img_file.suffix == suffix or img_file.stem.startswith('.'):
                     continue
                 lbl_file = self.lbl_dir / f"{img_file.stem}{suffix}"
                 self.img_idx += 1
-                yield [img_file, lbl_file, self.split, self.img_idx], {}
+                res.append(([img_file, lbl_file, self.split, self.img_idx], {}))
         else:
             for img_dir in self.img_dir:
                 for img_file in img_dir.iterdir():
@@ -191,7 +194,8 @@ class ToCOCO(ABC):
                         continue
                     lbl_file = self.lbl_dir / img_dir.name / f"{img_file.stem}{suffix}"
                     self.img_idx += 1
-                    yield [img_file, lbl_file, self.split, self.img_idx], {}
+                    res.append(([img_file, lbl_file, self.split, self.img_idx], {}))
+        return res
 
     @abstractmethod
     def instance_prepare(self, lbl_file: Path, img_id: int, split: str) -> list:
