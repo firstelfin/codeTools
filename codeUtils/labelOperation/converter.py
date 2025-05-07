@@ -144,6 +144,7 @@ class ToCOCO(ABC):
         self.classes = classes
         self.use_link = use_link
         self.split = split
+        self.start_img_idx = img_idx
         self.img_idx = img_idx
         self.ann_idx = ann_idx
         self.year = year if year is not None else ""
@@ -171,6 +172,11 @@ class ToCOCO(ABC):
             raise ValueError("Invalid split type.")
 
     def load_items(self, suffix: str = ".json"):
+        """加载并发处理函数的参数, 参数分两部分回传, 分别为args和kwargs.
+
+        :param str suffix: 文件后缀, defaults to ".json", 默认处理labelme格式的标签
+        """
+        
         if isinstance(self.img_dir, PosixPath):
             for img_file in self.img_dir.iterdir():
                 if img_file.suffix == suffix or img_file.stem.startswith('.'):
@@ -311,7 +317,7 @@ class ToCOCO(ABC):
         all_async_items = self.load_items()
         cpu_num = max(os.cpu_count() // 2, 6)
         exec_bar = FutureBar(max_workers=cpu_num, timeout=20, desc=self.__class__.__name__)
-        exec_bar(self.coco_prepare, all_async_items)
+        exec_bar(self.coco_prepare, all_async_items, total=self.img_idx-self.start_img_idx)
         
         # res = []
         # with ThreadPoolExecutor() as executor:
