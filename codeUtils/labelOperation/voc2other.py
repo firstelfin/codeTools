@@ -256,7 +256,7 @@ def voc2labelme(src_dir: str, dst_dir: str = None, img_valid: bool = False):
 class VOC2COCO(ToCOCO):
 
     def load_items(self):
-        return super(VOC2COCO, self).load_items(self, suffix=".xml")
+        return super().load_items(suffix=".xml")
     
     def instance_prepare(self, lbl_file, img_id, split):
         """从voc格式标注文件中解析出实例信息
@@ -304,5 +304,5 @@ def voc2coco(
         use_link: bool = False, split: str = 'train', year: str = "",
         class_start_index: int = 0
         ) -> None:
-    lbl2coco = VOC2COCO(img_dir, lbl_dir, dst_dir, classes, use_link=use_link, split=split, year=year, class_start_index=class_start_index)
-    lbl2coco(image_index=img_idx, anno_index=ann_idx)
+    lbl2coco = VOC2COCO(img_dir, lbl_dir, dst_dir, classes, use_link=use_link, split=split, img_idx=img_idx, ann_idx=ann_idx, year=year, class_start_index=class_start_index)
+    lbl2coco()

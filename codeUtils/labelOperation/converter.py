@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from codeUtils.labelOperation.readLabel import read_txt, parser_json
 from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label
+from codeUtils.tools.futureConf import FutureBar
+
 
 # @dataclass
 # class StandardData(object):
@@ -127,7 +129,7 @@ class ToCOCO(ABC):
 
     def __init__(
             self, img_dir: str = None, lbl_dir: str = None, dst_dir: str = None, classes: str = None, 
-            use_link: bool = False, split: str = 'train', 
+            use_link: bool = False, split: str = 'train', img_idx: int = 0, ann_idx: int = 0, 
             year: str = None, class_start_index: Literal[0, 1] = 0
         ):
         
@@ -142,6 +144,8 @@ class ToCOCO(ABC):
         self.classes = classes
         self.use_link = use_link
         self.split = split
+        self.img_idx = img_idx
+        self.ann_idx = ann_idx
         self.year = year if year is not None else ""
         self.names = dict()
         self.name2idx = dict()
@@ -166,21 +170,22 @@ class ToCOCO(ABC):
         else:
             raise ValueError("Invalid split type.")
 
-    @staticmethod
     def load_items(self, suffix: str = ".json"):
         if isinstance(self.img_dir, PosixPath):
             for img_file in self.img_dir.iterdir():
                 if img_file.suffix == suffix or img_file.stem.startswith('.'):
                     continue
                 lbl_file = self.lbl_dir / f"{img_file.stem}{suffix}"
-                yield img_file, lbl_file, self.split
+                self.img_idx += 1
+                yield [img_file, lbl_file, self.split, self.img_idx], {}
         else:
             for img_dir in self.img_dir:
                 for img_file in img_dir.iterdir():
                     if img_file.suffix == suffix or img_file.stem.startswith('.'):
                         continue
                     lbl_file = self.lbl_dir / img_dir.name / f"{img_file.stem}{suffix}"
-                    yield img_file, lbl_file, self.split
+                    self.img_idx += 1
+                    yield [img_file, lbl_file, self.split, self.img_idx], {}
 
     @abstractmethod
     def instance_prepare(self, lbl_file: Path, img_id: int, split: str) -> list:
@@ -266,15 +271,15 @@ class ToCOCO(ABC):
             shutil.copy(img_file, img_link)
         return len(file_labels)
 
-    def anno_id_modify(self, start_index: int = 0):
+    def anno_id_modify(self):
         """修改标注id
 
         :param int start_index: 起始索引, defaults to 0
         """
         for split in self.coco_annotations:
             for ann in self.coco_annotations[split]:
-                ann['id'] = start_index
-                start_index += 1
+                self.ann_idx += 1
+                ann['id'] = self.ann_idx
 
     def save_coco_json(self, anno_file: Path, split: str):
         coco_info = {
@@ -299,25 +304,30 @@ class ToCOCO(ABC):
             ],
         }
         save_json(anno_file, coco_dict)
-        logger.info(f"save {split} coco json file {anno_file} success.")
+        logger.info(f"save {split} coco json file {anno_file} success. {self.img_idx} images, {self.ann_idx} annotations.")
 
-    def __call__(self, image_index: int = 0, anno_index: int = 0, *args, **kwds):
+    def __call__(self, *args, **kwargs):
+
+        all_async_items = self.load_items()
+        cpu_num = max(os.cpu_count() // 2, 6)
+        exec_bar = FutureBar(max_workers=cpu_num, timeout=20, desc=self.__class__.__name__)
+        exec_bar(self.coco_prepare, all_async_items)
         
-        res = []
-        with ThreadPoolExecutor() as executor:
-            for img_file, lbl_file, split in self.load_items():
-                convert_res = executor.submit(self.coco_prepare, img_file, lbl_file, split, image_index)
-                image_index += 1
-                res.append(convert_res)
+        # res = []
+        # with ThreadPoolExecutor() as executor:
+        #     for img_file, lbl_file, split in self.load_items():
+        #         convert_res = executor.submit(self.coco_prepare, img_file, lbl_file, split, image_index)
+        #         image_index += 1
+        #         res.append(convert_res)
 
-            # 等待所有任务完成
-            labelme_bar = tqdm(as_completed(res), total=len(res), desc=self.__class__.__name__)
-            for convert_res in labelme_bar:
-                convert_res.result()
-                labelme_bar.set_postfix({'image_index': image_index})
+        #     # 等待所有任务完成
+        #     labelme_bar = tqdm(as_completed(res), total=len(res), desc=self.__class__.__name__)
+        #     for convert_res in labelme_bar:
+        #         convert_res.result()
+        #         labelme_bar.set_postfix({'image_index': image_index})
 
         # 保存COCO格式数据集
-        self.anno_id_modify(start_index=anno_index)
+        self.anno_id_modify()
         anno_dir = self.dst_dir / 'annotations'
         anno_dir.mkdir(exist_ok=True, parents=True)
 
