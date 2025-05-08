@@ -700,16 +700,16 @@ class StatisticBase(object):
             for instance in instance_list:
                 label, x1, y1, x2, y2 = instance
                 labelme_dict['shapes'].append({
-                    "label": label+add_suffix,
+                    "label": f"{label}-{add_suffix}",
                     "points": [[x1, y1], [x2, y2]],
                     "group_id": None,
                     "shape_type": "rectangle",
-                    "flags": {}
+                    "flags": {"predStatus": add_suffix}
                 })
         
         _add_instance(tpg_list)
-        _add_instance(fp_list, add_suffix='_fp')
-        _add_instance(fn_list, add_suffix='_fn')
+        _add_instance(fp_list, add_suffix='fp')
+        _add_instance(fn_list, add_suffix='fn')
 
         save_file_path = self.dst_dir / "fpfn_datasets" / f"{gt_file.stem}.json"
         save_file_path.parent.mkdir(exist_ok=True, parents=True)
