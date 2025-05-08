@@ -480,7 +480,8 @@ class StatisticBase(object):
             project: str = 'inference', use_ios: bool = True, 
             classes: str = 'classes.txt', chinese: bool = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
-            pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', **kwargs
+            pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
+            use_fpfn: bool = False, **kwargs
         ):
         """初始化统计类
 
@@ -502,6 +503,8 @@ class StatisticBase(object):
         :type gt_suffix: Literal[".txt", ".json", ".xml"], optional
         :param pred_suffix: 推理结果文件后缀名, defaults to '.json'
         :type pred_suffix: Literal[".txt", ".json", ".xml"], optional
+        :param use_fpfn: 是否使用FP, FN保存为子数据集, defaults to False
+        :type use_fpfn: bool, optional
         """
 
         assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"
@@ -511,12 +514,13 @@ class StatisticBase(object):
         self.dst_dir = get_exp_dir(dst_dir, project + "_Statistic")
         self.project = project + "_Statistic"
         self.use_ios = use_ios
-        self.backgroud = False
+        self.background = False
         self.classes = self.get_classes(classes)
         # 初始化统计的matrix
         self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=chinese)
         self.gt_suffix = gt_suffix
         self.pred_suffix = pred_suffix
+        self.use_fpfn = use_fpfn
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
     
     def get_classes(self, class_file: str) -> list:
@@ -532,7 +536,7 @@ class StatisticBase(object):
         else:
             raise ValueError(f"不支持的类别文件类型{type(class_file)}")
         classes.append('background')
-        self.backgroud = True  # 标记是否有背景类
+        self.background = True  # 标记是否有背景类
         return classes
 
     def load_datasets(self):
@@ -603,7 +607,7 @@ class StatisticBase(object):
             y1 = max(0, (y - h / 2) * imgh)
             x2 = min(imgw, (x + w / 2) * imgw)
             y2 = min(imgh, (y + h / 2) * imgh)
-            label = self.classes[entity[0]+1] if self.backgroud else self.classes[entity[0]]
+            label = self.classes[entity[0]+1] if self.background else self.classes[entity[0]]
             gt_boxes.append([label, x1, y1, x2, y2])
         return gt_boxes
     
@@ -656,12 +660,60 @@ class StatisticBase(object):
     def update(self, update_dict: dict):
         """更新统计矩阵
 
-        :param update_dict: 更新字典, 格式为{类别: 预测向量}, 如: {"backgroud": [1,0,0,1,0,1]}
+        :param update_dict: 更新字典, 格式为{类别: 预测向量}, 如: {"background": [1,0,0,1,0,1]}
         :type update_dict: dict
         """
         for key, value in update_dict.items():
             key_index = self.classes.index(key)
             self.matrix.matrix[:, key_index] += value
+
+    def save_fpfn_pipeline(self, match_object: dict, gt_file: str, img_shape: tuple):
+        """保存FP, FN实例为子数据集, 标签使用labelme格式
+        :param match_object: 匹配结果
+        :type match_object: dict
+        :param gt_file: 标注文件路径
+        :type gt_file: str
+        :param img_shape: 图片shape
+        :type img_shape: tuple
+
+        note: match_object['boxesStatus']中保存了TPG, TPP, FP, FN四种实例列表, \
+            实例的保存格式是: [label, x1, y1, x2, y2]
+        """
+
+        fp_list = match_object['boxesStatus']['fp']
+        fn_list = match_object['boxesStatus']['fn']
+        if len(fp_list) == 0 and len(fn_list) == 0:
+            return None
+        
+        tpg_list = match_object['boxesStatus']['tpg']
+        labelme_dict = {
+            "version": "4.5.6",
+            "flags": {},
+            "shapes": [],
+            "imagePath": f"{gt_file.stem}.jpg",
+            "imageData": None,
+            "imageHeight": img_shape[0],
+            "imageWidth": img_shape[1],
+        }
+
+        def _add_instance(instance_list: list[list], add_suffix: str = ""):
+            for instance in instance_list:
+                label, x1, y1, x2, y2 = instance
+                labelme_dict['shapes'].append({
+                    "label": label+add_suffix,
+                    "points": [[x1, y1], [x2, y2]],
+                    "group_id": None,
+                    "shape_type": "rectangle",
+                    "flags": {}
+                })
+        
+        _add_instance(tpg_list)
+        _add_instance(fp_list, add_suffix='_fp')
+        _add_instance(fn_list, add_suffix='_fn')
+
+        save_file_path = self.dst_dir / "fpfn_datasets" / f"{gt_file.stem}.json"
+        save_file_path.parent.mkdir(exist_ok=True, parents=True)
+        save_labelme_label(save_file_path, labelme_dict)
 
     def match(self, pred_file: str, gt_file: str, **kwargs):
         pred_entities = self.load_lbl_data(pred_file, self.pred_suffix)
@@ -683,9 +735,9 @@ class StatisticBase(object):
         # 更新统计实验数据
         self.update(match_object['updateItems'])
 
-        # 保存渲染结果
-        if kwargs.get('rendering', False):
-            pass
+        # 保存GT和误报实例为数据子集, 标签使用labelme格式
+        if self.use_fpfn:
+            self.save_fpfn_pipeline(match_object, gt_file, img_shape)
 
         return True
 
