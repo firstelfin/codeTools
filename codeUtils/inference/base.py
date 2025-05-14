@@ -441,12 +441,13 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            suffix_load_func: dict = None, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = None, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
         :param Literal[.txt, .json, .xm] gt_suffix: 标注文件的后缀类型, defaults to ".json"
         :param dict suffix_load_func: 各类标签加载的方法, defaults to None
+        :param str|list|dict classes: 类别文件路径(支持list, dict), defaults to None
         """
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
@@ -459,6 +460,9 @@ class StatisticSimple(object):
             self.suffix_load_func.update(suffix_load_func)
         self.classes = self.get_classes(classes)
         self.background = True  # 标记是否有背景类
+        self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
+        if chinese:
+            ConfusionMatrix.set_plt(chinese=chinese)
     
     @classmethod
     def get_classes(cls, class_file: str) -> list:
@@ -504,7 +508,7 @@ class StatisticSimple(object):
             x1, y1, x2, y2 = shape['points'][0][0], shape['points'][0][1], shape['points'][1][0], shape['points'][1][1]
             box = [x1, y1, x2, y2]
             if use_conf:
-                conf = shape.get('conf', 1.0)
+                conf = min(shape.get('conf', 1.0), shape.get("score", 1.0))
                 pred_boxes.append([box_cls, conf,  *box])
             else:
                 pred_boxes.append([box_cls, *box])
@@ -592,7 +596,7 @@ class StatisticSimple(object):
         return img_shape
 
 
-class StatisticBase(StatisticSimple):
+class StatisticConfusion(StatisticSimple):
     """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
     推理结果文件夹和标注文件夹需要对应, 文件夹名称可以不一样.
 
@@ -665,7 +669,11 @@ class StatisticBase(StatisticSimple):
         :param use_fpfn: 是否使用FP, FN保存为子数据集, defaults to False
         :type use_fpfn: bool, optional
         """
-
+        super().__init__(
+            gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
+            suffix_load_func=kwargs.get('suffix_load_func', None),
+            classes=classes, chinese=chinese, **kwargs
+        )
         assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"
         assert pred_suffix in self.suffix_load_func, f"不支持的预测文件后缀名{pred_suffix}"
         self.src_gt = path_list_valid(src_gt)
@@ -674,17 +682,11 @@ class StatisticBase(StatisticSimple):
         self.project = project + "_Statistic"
         self.use_ios = use_ios
         self.background = False
-        super().__init__(
-            gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
-            suffix_load_func=kwargs.get('suffix_load_func', None),
-            classes=classes, **kwargs
-        )
-        # 初始化统计的matrix
-        self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=chinese)
-        self.use_fpfn = use_fpfn
-        self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         
-
+        # 初始化统计的matrix
+        self.matrix = ConfusionMatrix(len(self.classes), self.classes)
+        self.use_fpfn = use_fpfn
+    
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
 
@@ -845,8 +847,11 @@ class StatisticBase(StatisticSimple):
         self.matrix.save_xlsx(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.xlsx")
 
 
+class StatisticBase(StatisticConfusion):
+    pass
+
 @StatisticRegistry
-class StatisticMatrix(DetMetrics, StatisticSimple):
+class StatisticMatrix(StatisticSimple):
     """预测分布指标统计
     
     :param list[str] pred_dir: 预测结果目录, defaults to None
@@ -868,20 +873,21 @@ class StatisticMatrix(DetMetrics, StatisticSimple):
     def __init__(
             self, pred_dir: list[str] = None, gt_dir: list[str] = None, 
             dst_dir=Path("."), project: str = "detection", plot=False,
-            names: list | dict | str = {}, pred_suffix=".json", gt_suffix=".json", **kwargs):
-        
+            classes: list | dict | str = {}, pred_suffix=".json", gt_suffix=".json", **kwargs
+        ):
+        super().__init__(pred_suffix=pred_suffix, gt_suffix=gt_suffix, classes=classes, **kwargs)
         assert pred_dir is not None and gt_dir is not None, "预测结果目录和标注文件目录不能为空"
         self.pred_dir = pred_dir if isinstance(pred_dir, list) else [pred_dir]
         self.gt_dir = gt_dir if isinstance(gt_dir, list) else [gt_dir]
+        self.pred_dir = [Path(p) for p in self.pred_dir]
+        self.gt_dir = [Path(p) for p in self.gt_dir]
         self.dst_dir = dst_dir if isinstance(dst_dir, PosixPath) else Path(dst_dir)
         self.save_dir = get_exp_dir(self.dst_dir, project + "_Matrix")
-        self.names = self.load_names(names)
+        self.names = self.load_names(classes)
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
-        super().__init__(
-            save_dir=self.save_dir, plot=plot, names=self.names, 
-            pred_suffix=pred_suffix, gt_suffix=gt_suffix, **kwargs
-        )
+        
+        self.matrix = DetMetrics(save_dir=self.save_dir, plot=plot, names=self.names, **kwargs)
         self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[])
         self.iou_vector = np.linspace(0.5, 0.95, 10)  # IoU阈值向量
         self.num_iou = self.iou_vector.size  # IoU阈值数量
@@ -937,7 +943,7 @@ class StatisticMatrix(DetMetrics, StatisticSimple):
             matches = np.nonzero(iou > threshold)
             matches = np.array(matches).T  # 匹配上的索引, list of [pred_idx, gt_idx]
             if matches.shape[0]:
-                matches = matches[iou[matches[:, 0], matches[:, 1].argsort()[::-1]]]  # 按照匹配的iou数值重排匹配数组
+                matches = matches[iou[matches[:, 0], matches[:, 1]].argsort()[::-1]]  # 按照匹配的iou数值重排匹配数组
                 matches = matches[np.unique(matches[:, 1], return_index=True)[1]]     # 去除重复的gt_idx
                 matches = matches[np.unique(matches[:, 0], return_index=True)[1]]     # 去除重复的pred_idx
             correct[matches[:, 1].astype(int), i] = True                              # 标记每个预测对象在self.iou_vector[i]下是否有匹配
@@ -957,7 +963,7 @@ class StatisticMatrix(DetMetrics, StatisticSimple):
         pred_boxes = np.array(pred_boxes) if pred_boxes else np.zeros((0, 6))
 
         stat = dict(
-            conf=pred_boxes[:, 1],  # 预测对象默认格式是: [label, conf, x1, y1, x2, y2]
+            conf=pred_boxes[:, 1].astype(float),  # 预测对象默认格式是: [label, conf, x1, y1, x2, y2]
             tp=np.zeros((pred_boxes.shape[0], self.num_iou), dtype=bool),
             pred_cls=pred_boxes[:, 0],
             target_cls=gt_boxes[:, 0],
@@ -983,8 +989,8 @@ class StatisticMatrix(DetMetrics, StatisticSimple):
         """返回分布指标统计结果"""
         stats = {k: np.concatenate(v) for k, v in self.stats.items()}
         if len(stats) and stats["tp"].any():
-            self.process(**stats)
-        return self.results_dict
+            self.matrix.process(**stats)
+        return self.matrix.results_dict
     
     def __call__(self, *args, **kwargs):
         entities_generator = self.load_items()

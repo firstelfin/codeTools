@@ -270,6 +270,7 @@ def ap_per_class(
     f1_curve = 2 * p_curve * r_curve / (p_curve + r_curve + eps)  # shape=(nc, 1000)
     names = [v for k, v in names.items() if k in unique_classes]  # list: only classes that have data
     names = dict(enumerate(names))  # to dict
+    cls_is_int = True if isinstance(unique_classes[0], int) else False
     if plot:
         plot_pr_curve(x, p_rec_values, ap, save_dir / f"{prefix}PR_curve.png", names, on_plot=on_plot)
         plot_mc_curve(x, f1_curve, save_dir / f"{prefix}F1_curve.png", names, ylabel="F1", on_plot=on_plot)
@@ -283,7 +284,10 @@ def ap_per_class(
     p, r, f1 = p_curve[:, i], r_curve[:, i], f1_curve[:, i]  # max-F1 precision, recall, F1 values
     tp = (r * nt).round()  # true positives的数量
     fp = (tp / (p + eps) - tp).round()  # false positives
-    return tp, fp, p, r, f1, ap, unique_classes.astype(int), p_curve, r_curve, f1_curve, x, p_rec_values
+    if cls_is_int:
+        return tp, fp, p, r, f1, ap, unique_classes.astype(int), p_curve, r_curve, f1_curve, x, p_rec_values
+    else:
+        return tp, fp, p, r, f1, ap, unique_classes, p_curve, r_curve, f1_curve, x, p_rec_values
 
 
 class Metric(SimpleClass):
@@ -476,7 +480,7 @@ class DetMetrics(SimpleClass):
     Note: Copy from https://github.com/ultralytics/ultralytics/
     """
 
-    def __init__(self, save_dir=Path("."), plot=False, names={}) -> None:
+    def __init__(self, save_dir=Path("."), plot=False, names={}, **kwargs) -> None:
         """
         Initialize a DetMetrics instance with a save directory, plot flag, and class names.
 
@@ -485,6 +489,7 @@ class DetMetrics(SimpleClass):
             plot (bool, optional): Whether to plot precision-recall curves.
             names (dict, optional): Dictionary mapping class indices to names.
         """
+        super().__init__()
         self.save_dir = save_dir
         self.plot = plot
         self.names = names
