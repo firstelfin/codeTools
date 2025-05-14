@@ -20,12 +20,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.tools.fontConfig import colorstr
 from codeUtils.tools.torchTools import torch_empty_cache
+from codeUtils.tools.futureConf import FutureBar
 from codeUtils.tools.tqdmConf import cpu_num, BATCH_KEY, START_KEY, END_KEY, TPP, FPP, TPG, TNG, GTN, PRN
 from codeUtils.__base__ import strPath
 from codeUtils.labelOperation.readLabel import read_voc, read_yolo, read_txt, parser_json
 from codeUtils.labelOperation.saveLabel import save_labelme_label
 from codeUtils.matrix.confusionMatrix import ConfusionMatrix
-from codeUtils.matchFactory.bboxMatch import abs_box
+from codeUtils.matrix.distMatrix import DetMetrics
+from codeUtils.matchFactory.bboxMatch import abs_box, iou_np_boxes
 from codeUtils.inference.boxMatch import yolo_match
 from codeUtils.decorator.registry import Registry
 
@@ -33,6 +35,7 @@ from codeUtils.decorator.registry import Registry
 SliceRegistry = Registry("SliceRegistry")
 CombineRegistry = Registry("CombineRegistry")
 InferRegistry = Registry("InferRegistry")
+StatisticRegistry = Registry("StatisticRegistry")
 
 
 def get_exp_dir(dst_dir: str, project: str = 'inference') -> PosixPath:
@@ -427,7 +430,169 @@ class PredictBase(DetectBase):
                         epoch_bar.update()
 
 
-class StatisticBase(object):
+class StatisticSimple(object):
+    """统计基类
+
+    :param Literal[".txt", ".json", ".xml"] pred_suffix: 预测文件的后缀类型, defaults to ".json"
+    :param Literal[".txt", ".json", ".xml"] gt_suffix: 标注文件的后缀类型, defaults to ".json"
+    :param dict suffix_load_func: 各类标签加载的方法, defaults to None
+    """
+
+    def __init__(
+            self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
+            gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
+            suffix_load_func: dict = None, **kwargs
+        ):
+        """
+        :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
+        :param Literal[.txt, .json, .xm] gt_suffix: 标注文件的后缀类型, defaults to ".json"
+        :param dict suffix_load_func: 各类标签加载的方法, defaults to None
+        """
+        self.pred_suffix = pred_suffix
+        self.gt_suffix = gt_suffix
+        self.suffix_load_func = {
+            ".txt": read_yolo,
+            ".json": parser_json,
+            ".xml": read_voc
+        }
+        if suffix_load_func:
+            self.suffix_load_func.update(suffix_load_func)
+        self.classes = self.get_classes(classes)
+        self.background = True  # 标记是否有背景类
+    
+    @classmethod
+    def get_classes(cls, class_file: str) -> list:
+        """获取类别列表
+
+        :param class_file: 类别文件路径
+        :type class_file: str
+        """
+        if isinstance(class_file, (str, PosixPath)):
+            classes = read_txt(class_file)
+        elif isinstance(class_file, list):
+            classes = class_file
+        else:
+            raise ValueError(f"不支持的类别文件类型{type(class_file)}")
+        classes.append('background')
+        
+        return classes
+
+    def load_lbl_data(self, lbl_file: str, suffix: str) -> dict:
+        """加载单个预测结果文件, 返回预测结果[dict]
+
+        :param lbl_file: 预测结果文件路径
+        :type lbl_file: str
+        :param suffix: 标签文件后缀名
+        :type suffix: str
+        :return: 预测结果[dict]
+        """
+        lbl_data = self.suffix_load_func[suffix](lbl_file)
+        return lbl_data
+
+    @classmethod
+    def labelme2match(cls, pred_entities: dict, use_conf: bool = False, **kwargs) -> list:
+        """将labelme格式的对象转换为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param pred_entities: labelme格式的预测结果对象
+        :type pred_entities: dict
+        :param use_conf: 是否使用置信度, defaults to False
+        :type use_conf: bool, optional
+        """
+        pred_boxes = []
+        for shape in pred_entities['shapes']:
+            box_cls = shape['label']  # yolo模型注入的类别编号
+            x1, y1, x2, y2 = shape['points'][0][0], shape['points'][0][1], shape['points'][1][0], shape['points'][1][1]
+            box = [x1, y1, x2, y2]
+            if use_conf:
+                conf = shape.get('conf', 1.0)
+                pred_boxes.append([box_cls, conf,  *box])
+            else:
+                pred_boxes.append([box_cls, *box])
+        
+        return pred_boxes
+    
+    def yolo2match(self, gt_entities: list, use_conf: bool = False, **kwargs) -> list:
+        """将标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param gt_entities: 标注文件内容
+        :type gt_entities: list
+        :param use_conf: 是否使用置信度, defaults to False
+        :type use_conf: bool, optional
+
+        Note: 带conf的实例格式是: [class_id, x1, y1, x2, y2, conf]
+        """
+        imgh, imgw = kwargs.get('img_shape', (1, 1))
+        gt_boxes = []
+        for entity in gt_entities:
+            x, y, w, h = entity[1:5]
+            x1 = max(0, (x - w / 2) * imgw)
+            y1 = max(0, (y - h / 2) * imgh)
+            x2 = min(imgw, (x + w / 2) * imgw)
+            y2 = min(imgh, (y + h / 2) * imgh)
+            label = self.classes[entity[0]+1] if self.background else self.classes[entity[0]]
+            if use_conf:
+                conf = entity[5] if len(entity) == 6 else 1.0
+                gt_boxes.append([label, conf, x1, y1, x2, y2])
+            else:
+                gt_boxes.append([label, x1, y1, x2, y2])
+        return gt_boxes
+    
+    @classmethod
+    def voc2match(cls, gt_entities: dict, use_conf: bool = False, **kwargs) -> list:
+        """将voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param gt_entities: voc格式的标注文件内容
+        :type gt_entities: dict
+        :param use_conf: 是否使用置信度, defaults to False
+        :type use_conf: bool, optional
+        """
+        result = []
+        for obj in gt_entities["object"]:
+            label = obj["name"]
+            x1, y1, x2, y2 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"], obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
+            if use_conf:
+                conf = obj.get('confidence', 1.0)
+                result.append([label, conf, x1, y1, x2, y2])
+            else:
+                result.append([label, x1, y1, x2, y2])
+        return result
+    
+    def middle2match(self, entities: list | dict, suffix: str = None, use_conf: bool = False, **kwargs) -> list:
+        """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+
+        :param list entities: 各种格式的标签直接加载的对象
+        :param str suffix: 标签文件后缀名
+        :param bool use_conf: 是否使用置信度
+        :return list: 示例列表
+        """
+        if entities is None:
+            return []
+        if suffix is None or suffix == ".json":
+            return self.labelme2match(entities, use_conf=use_conf, **kwargs)
+        elif suffix == ".txt":
+            return self.yolo2match(entities, use_conf=use_conf, **kwargs)
+        elif suffix == ".xml":
+            return self.voc2match(entities, use_conf=use_conf, **kwargs)
+        else:
+            raise ValueError(f"不支持的标签文件后缀名{suffix}")
+
+    def get_image_shape(self, pred_entities, gt_entities, **kwargs) -> tuple:
+        if not self.is_yolo_lbl:
+            img_shape = (1, 1)
+        if self.pred_suffix == ".json" and pred_entities is not None:
+            img_shape = (pred_entities['imageHeight'], pred_entities['imageWidth'])
+        elif self.pred_suffix == ".xml" and pred_entities is not None:
+            img_shape = (pred_entities["size"]["height"], pred_entities["size"]["width"])
+        elif self.gt_suffix == ".json" and gt_entities is not None:
+            img_shape = (gt_entities['imageHeight'], gt_entities['imageWidth'])
+        elif self.gt_suffix == ".xml" and gt_entities is not None:
+            img_shape = (gt_entities["size"]["height"], gt_entities["size"]["width"])
+        else:
+            img_shape = (1, 1)
+        return img_shape
+
+
+class StatisticBase(StatisticSimple):
     """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
     推理结果文件夹和标注文件夹需要对应, 文件夹名称可以不一样.
 
@@ -469,12 +634,6 @@ class StatisticBase(object):
         ```
     """
 
-    suffix_load_func = {
-        ".txt": read_yolo,
-        ".json": parser_json,
-        ".xml": read_voc
-    }
-
     def __init__(
             self, src_gt: list[str], src_pred: list[str], dst_dir: str, 
             project: str = 'inference', use_ios: bool = True, 
@@ -515,29 +674,16 @@ class StatisticBase(object):
         self.project = project + "_Statistic"
         self.use_ios = use_ios
         self.background = False
-        self.classes = self.get_classes(classes)
+        super().__init__(
+            gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
+            suffix_load_func=kwargs.get('suffix_load_func', None),
+            classes=classes, **kwargs
+        )
         # 初始化统计的matrix
         self.matrix = ConfusionMatrix(len(self.classes), self.classes, chinese=chinese)
-        self.gt_suffix = gt_suffix
-        self.pred_suffix = pred_suffix
         self.use_fpfn = use_fpfn
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
-    
-    def get_classes(self, class_file: str) -> list:
-        """获取类别列表
-
-        :param class_file: 类别文件路径
-        :type class_file: str
-        """
-        if isinstance(class_file, (str, PosixPath)):
-            classes = read_txt(class_file)
-        elif isinstance(class_file, list):
-            classes = class_file
-        else:
-            raise ValueError(f"不支持的类别文件类型{type(class_file)}")
-        classes.append('background')
-        self.background = True  # 标记是否有背景类
-        return classes
+        
 
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
@@ -565,97 +711,6 @@ class StatisticBase(object):
                     continue
                 lbl_file = Path(self.src_gt[i]) / (file.stem + self.gt_suffix)
                 yield file, lbl_file
-
-    def load_lbl_data(self, lbl_file: str, suffix: str) -> dict:
-        """加载单个预测结果文件, 返回预测结果[dict]
-
-        :param lbl_file: 预测结果文件路径
-        :type lbl_file: str
-        :param suffix: 标签文件后缀名
-        :type suffix: str
-        :return: 预测结果[dict]
-        """
-        lbl_data = self.suffix_load_func[suffix](lbl_file)
-        return lbl_data
-
-    def labelme2match(self, pred_entities: dict, **kwargs) -> list:
-        """将labelme格式的对象转换为匹配格式, 匹配格式由自定义匹配模块定义
-
-        :param pred_entities: labelme格式的预测结果对象
-        :type pred_entities: dict
-        """
-        pred_boxes = []
-        for shape in pred_entities['shapes']:
-            box_cls = shape['label']  # yolo模型注入的类别编号
-            x1, y1, x2, y2 = shape['points'][0][0], shape['points'][0][1], shape['points'][1][0], shape['points'][1][1]
-            box = [x1, y1, x2, y2]
-            pred_boxes.append([box_cls, *box])
-        
-        return pred_boxes
-    
-    def yolo2match(self, gt_entities: list, **kwargs) -> list:
-        """将标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
-
-        :param gt_entities: 标注文件内容
-        :type gt_entities: list
-        """
-        imgh, imgw = kwargs.get('img_shape', (1, 1))
-        gt_boxes = []
-        for entity in gt_entities:
-            x, y, w, h = entity[1:5]
-            x1 = max(0, (x - w / 2) * imgw)
-            y1 = max(0, (y - h / 2) * imgh)
-            x2 = min(imgw, (x + w / 2) * imgw)
-            y2 = min(imgh, (y + h / 2) * imgh)
-            label = self.classes[entity[0]+1] if self.background else self.classes[entity[0]]
-            gt_boxes.append([label, x1, y1, x2, y2])
-        return gt_boxes
-    
-    def voc2match(self, gt_entities: dict, **kwargs) -> list:
-        """将voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
-
-        :param gt_entities: voc格式的标注文件内容
-        :type gt_entities: dict
-        """
-        result = []
-        for obj in gt_entities["object"]:
-            label = obj["name"]
-            x1, y1, x2, y2 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"], obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
-            result.append([label, x1, y1, x2, y2])
-        return result
-    
-    def middle2match(self, entities: list | dict, suffix: str = None, **kwargs) -> list:
-        """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
-
-        :param list entities: 各种格式的标签直接加载的对象
-        :param str suffix: 标签文件后缀名
-        :return list: 示例列表
-        """
-        if entities is None:
-            return []
-        if suffix is None or suffix == ".json":
-            return self.labelme2match(entities, **kwargs)
-        elif suffix == ".txt":
-            return self.yolo2match(entities, **kwargs)
-        elif suffix == ".xml":
-            return self.voc2match(entities, **kwargs)
-        else:
-            raise ValueError(f"不支持的标签文件后缀名{suffix}")
-
-    def get_image_shape(self, pred_entities, gt_entities, **kwargs) -> tuple:
-        if not self.is_yolo_lbl:
-            img_shape = (1, 1)
-        if self.pred_suffix == ".json" and pred_entities is not None:
-            img_shape = (pred_entities['imageHeight'], pred_entities['imageWidth'])
-        elif self.pred_suffix == ".xml" and pred_entities is not None:
-            img_shape = (pred_entities["size"]["height"], pred_entities["size"]["width"])
-        elif self.gt_suffix == ".json" and gt_entities is not None:
-            img_shape = (gt_entities['imageHeight'], gt_entities['imageWidth'])
-        elif self.gt_suffix == ".xml" and gt_entities is not None:
-            img_shape = (gt_entities["size"]["height"], gt_entities["size"]["width"])
-        else:
-            img_shape = (1, 1)
-        return img_shape
 
     def update(self, update_dict: dict):
         """更新统计矩阵
@@ -788,6 +843,166 @@ class StatisticBase(object):
         self.matrix.save_figure(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.png")
         self.matrix.save_figure(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix_normalized.png", mode='normalize')
         self.matrix.save_xlsx(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.xlsx")
+
+
+@StatisticRegistry
+class StatisticMatrix(DetMetrics, StatisticSimple):
+    """预测分布指标统计
+    
+    :param list[str] pred_dir: 预测结果目录, defaults to None
+    :param list[str] gt_dir: 标注文件目录, defaults to None
+    :param str dst_dir: 结果保存目录, defaults to "."
+    :param str project: 实验名称, defaults to "detection"
+    :param bool plot: 是否绘制统计图, defaults to False
+    :param list | dict | str names: 类别名称, defaults to {}
+    :param str pred_suffix: 预测结果文件后缀名, defaults to ".json"
+    :param str gt_suffix: 标注文件后缀名, defaults to ".json"
+    tp (np.ndarray): True positive array.
+    conf (np.ndarray): Confidence array.
+    pred_cls (np.ndarray): Predicted class indices array.
+    target_cls (np.ndarray): Target class indices array.
+    on_plot (callable, optional): Function to call after plots are generated.
+
+    """
+
+    def __init__(
+            self, pred_dir: list[str] = None, gt_dir: list[str] = None, 
+            dst_dir=Path("."), project: str = "detection", plot=False,
+            names: list | dict | str = {}, pred_suffix=".json", gt_suffix=".json", **kwargs):
+        
+        assert pred_dir is not None and gt_dir is not None, "预测结果目录和标注文件目录不能为空"
+        self.pred_dir = pred_dir if isinstance(pred_dir, list) else [pred_dir]
+        self.gt_dir = gt_dir if isinstance(gt_dir, list) else [gt_dir]
+        self.dst_dir = dst_dir if isinstance(dst_dir, PosixPath) else Path(dst_dir)
+        self.save_dir = get_exp_dir(self.dst_dir, project + "_Matrix")
+        self.names = self.load_names(names)
+        self.pred_suffix = pred_suffix
+        self.gt_suffix = gt_suffix
+        super().__init__(
+            save_dir=self.save_dir, plot=plot, names=self.names, 
+            pred_suffix=pred_suffix, gt_suffix=gt_suffix, **kwargs
+        )
+        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[])
+        self.iou_vector = np.linspace(0.5, 0.95, 10)  # IoU阈值向量
+        self.num_iou = self.iou_vector.size  # IoU阈值数量
+    
+    @staticmethod
+    def load_names(names: list | dict | str):
+        if isinstance(names, (str, PosixPath)):
+            names_obj = read_txt(names)
+        else:
+            names_obj = names
+        
+        if isinstance(names_obj, list):
+            names_dict = {i: v for i, v in enumerate(names_obj)}
+        elif isinstance(names_obj, dict):
+            names_dict = names_obj
+        else:
+            raise ValueError(f"不支持的names数据类型{type(names_obj)}")
+        return names_dict
+        
+    def load_items(self):
+        pred_num = 0
+        for pred_dir in self.pred_dir:
+            for pred_file in pred_dir.iterdir():
+                if pred_file.suffix != self.pred_suffix:
+                    continue
+                pred_num += 1
+        yield pred_num
+
+        num = 0
+        for pred_dir, gt_dir in zip(self.pred_dir, self.gt_dir):
+            for pred_file in pred_dir.iterdir():
+                if pred_file.suffix != self.pred_suffix:
+                    continue
+                gt_file = gt_dir / (pred_file.stem + self.gt_suffix)
+                num += 1
+                yield (pred_file, gt_file, num), dict()
+
+    def match_cls_and_iou(self, pred_cls, gt_cls, iou_matrix):
+        """根据IoU矩阵匹配预测结果和标签文件
+
+        :param pred_cls: 预测框的预测类别数组
+        :param gt_cls: 标注框的标签数组
+        :param iou_matrix: IoU矩阵, 元素为[pred_idx, gt_idx, iou]
+        """
+
+        # 针对单张图片的预测与GT构建一个不同IOU阈值下的匹配记录矩阵
+        correct = np.zeros((pred_cls.shape[0], self.iou_vector.shape[0])).astype(bool)
+        # 记录预测与GT之间的类别匹配情况
+        correct_cls = gt_cls[:, None] == pred_cls
+        iou = iou_matrix * correct_cls
+
+        for i, threshold in enumerate(self.iou_vector):
+            matches = np.nonzero(iou > threshold)
+            matches = np.array(matches).T  # 匹配上的索引, list of [pred_idx, gt_idx]
+            if matches.shape[0]:
+                matches = matches[iou[matches[:, 0], matches[:, 1].argsort()[::-1]]]  # 按照匹配的iou数值重排匹配数组
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]     # 去除重复的gt_idx
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]     # 去除重复的pred_idx
+            correct[matches[:, 1].astype(int), i] = True                              # 标记每个预测对象在self.iou_vector[i]下是否有匹配
+        
+        return correct
+
+    def match(self, pred_file: str, gt_file: str, num: int, **kwargs):
+        
+        pred_entities = self.load_lbl_data(pred_file, self.pred_suffix)
+        gt_entities = self.load_lbl_data(gt_file, self.gt_suffix)
+        img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
+        # 匹配预测结果和标签文件
+        ## pred_boxes的元素为: [label, conf, x1, y1, x2, y2]
+        pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape, use_conf=True)
+        gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
+        gt_boxes = np.array(gt_boxes) if gt_boxes else np.zeros((0, 5))
+        pred_boxes = np.array(pred_boxes) if pred_boxes else np.zeros((0, 6))
+
+        stat = dict(
+            conf=pred_boxes[:, 1],  # 预测对象默认格式是: [label, conf, x1, y1, x2, y2]
+            tp=np.zeros((pred_boxes.shape[0], self.num_iou), dtype=bool),
+            pred_cls=pred_boxes[:, 0],
+            target_cls=gt_boxes[:, 0],
+        )
+
+        # 没有预测时或着没有GT时, 立即整备self.stats, 并结束
+        if pred_boxes.shape[0] == 0 or gt_boxes.shape[0] == 0:
+            for k in self.stats.keys():
+                self.stats[k].append(stat[k])
+            return None
+
+        # 计算iou匹配矩阵
+        iou_matrix = iou_np_boxes(gt_boxes[:, 1:], pred_boxes[:, 2:])
+        iou_cls_iou_vector = self.match_cls_and_iou(pred_boxes[:, 0], gt_boxes[:, 0], iou_matrix)
+        stat['tp'] = iou_cls_iou_vector
+
+        for k in self.stats.keys():
+            self.stats[k].append(stat[k])
+
+        return None
+    
+    def get_stats(self):
+        """返回分布指标统计结果"""
+        stats = {k: np.concatenate(v) for k, v in self.stats.items()}
+        if len(stats) and stats["tp"].any():
+            self.process(**stats)
+        return self.results_dict
+    
+    def __call__(self, *args, **kwargs):
+        entities_generator = self.load_items()
+        total_num = next(entities_generator)
+
+        # 匹配预测结果和标签文件, 结果保存到self.match_matrix
+        future_bar = FutureBar(total=total_num, desc="StatisticMatrix")
+        future_bar(self.match, entities_generator, total=total_num)
+
+        # 合并self.stats, 并计算指标
+        results = self.get_stats()
+
+        return results
+
+
+
+
+    pass
 
 
 class SlidingWindowBase(object):

@@ -8,6 +8,7 @@
 @Desc    :   concurrent programming tools
 '''
 
+import os
 from loguru import logger
 from tqdm import tqdm
 from functools import partial
@@ -37,7 +38,7 @@ class FutureBar(object):
             unit_divisor=1000, write_bytes=False, lock_args=None, nrows=None, 
             delay=0, gui=False, **kwargs
         ):
-        self.max_workers = max_workers
+        self.max_workers = max_workers if isinstance(max_workers, int) else max(os.cpu_count() // 2, 6)
         self.use_process = use_process
         self.bar_callback = TqdmFutureCallback(timeout=timeout)
         new_desc = colorstr("bright_blue", "bold", desc) if isinstance(desc, str) else desc

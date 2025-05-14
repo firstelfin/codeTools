@@ -8,6 +8,10 @@
 @Desc    :   bbox相关的匹配算子
 '''
 
+import numpy as np
+from numpy import ndarray
+
+
 def box_valid(box: list) -> bool:
     x1, y1, x2, y2 = box
     if x1 >= x2 or y1 >= y2:
@@ -146,3 +150,25 @@ def abs_box(box1: list, box2: list) -> list:
     if not box_valid(coord):
         raise Exception(f"bboxError: 边框的坐标不符合要求, coord={coord}.")
     return coord
+
+
+def iou_np_boxes(boxes1: ndarray, boxes2: ndarray, eps: float=1e-7) -> ndarray:
+    """计算np数组中boxes1和boxes2的iou
+
+    :param ndarray boxes1: 边框左上右下角坐标, instance = [x1, y1, x2, y2]
+    :param ndarray boxes2: 边框左上右下角坐标
+    :return ndarray: iou数组
+    """
+    boxes1 = np.array(boxes1)
+    boxes2 = np.array(boxes2)
+    (a1, a2) = np.split(np.expand_dims(boxes1.astype(float), axis=1), 2, axis=2)
+    (b1, b2) = np.split(np.expand_dims(boxes2.astype(float), axis=0), 2, axis=2)
+    inter = np.prod(np.clip(np.minimum(a2, b2) - np.maximum(a1, b1), 0, None), axis=2)
+    boxes1_area = np.prod(np.clip(a2 - a1, 0, None), axis=2)
+    boxes2_area = np.prod(np.clip(b2 - b1, 0, None), axis=2)
+    union = boxes1_area + boxes2_area - inter
+    iou = inter / (union + eps)
+    return iou
+
+
+
