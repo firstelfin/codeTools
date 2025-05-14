@@ -16,6 +16,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path, PosixPath
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
+from loguru import logger
+from wcwidth import wcswidth
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.tools.fontConfig import colorstr
@@ -462,7 +464,7 @@ class StatisticSimple(object):
         self.background = True  # 标记是否有背景类
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         if chinese:
-            ConfusionMatrix.set_plt(chinese=chinese)
+            ConfusionMatrix.set_plt(font_path=chinese if isinstance(chinese, str) else None)
     
     @classmethod
     def get_classes(cls, class_file: str) -> list:
@@ -475,6 +477,8 @@ class StatisticSimple(object):
             classes = read_txt(class_file)
         elif isinstance(class_file, list):
             classes = class_file
+        elif isinstance(class_file, dict):  # 传入是names时, 取name列表得到classes
+            classes = [class_file[i] for i in sorted(class_file.keys())]
         else:
             raise ValueError(f"不支持的类别文件类型{type(class_file)}")
         classes.append('background')
@@ -873,9 +877,13 @@ class StatisticMatrix(StatisticSimple):
     def __init__(
             self, pred_dir: list[str] = None, gt_dir: list[str] = None, 
             dst_dir=Path("."), project: str = "detection", plot=False,
-            classes: list | dict | str = {}, pred_suffix=".json", gt_suffix=".json", **kwargs
+            classes: list | dict | str = {}, pred_suffix=".json", gt_suffix=".json",
+            verbose=False, chinese=False, **kwargs
         ):
-        super().__init__(pred_suffix=pred_suffix, gt_suffix=gt_suffix, classes=classes, **kwargs)
+        super().__init__(
+            pred_suffix=pred_suffix, gt_suffix=gt_suffix,
+            classes=classes, chinese=chinese, **kwargs
+        )
         assert pred_dir is not None and gt_dir is not None, "预测结果目录和标注文件目录不能为空"
         self.pred_dir = pred_dir if isinstance(pred_dir, list) else [pred_dir]
         self.gt_dir = gt_dir if isinstance(gt_dir, list) else [gt_dir]
@@ -884,11 +892,14 @@ class StatisticMatrix(StatisticSimple):
         self.dst_dir = dst_dir if isinstance(dst_dir, PosixPath) else Path(dst_dir)
         self.save_dir = get_exp_dir(self.dst_dir, project + "_Matrix")
         self.names = self.load_names(classes)
+        self.nc = len(self.names)
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
+        self.verbose = verbose
+        self.seen = 0
         
         self.matrix = DetMetrics(save_dir=self.save_dir, plot=plot, names=self.names, **kwargs)
-        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[])
+        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
         self.iou_vector = np.linspace(0.5, 0.95, 10)  # IoU阈值向量
         self.num_iou = self.iou_vector.size  # IoU阈值数量
     
@@ -967,7 +978,9 @@ class StatisticMatrix(StatisticSimple):
             tp=np.zeros((pred_boxes.shape[0], self.num_iou), dtype=bool),
             pred_cls=pred_boxes[:, 0],
             target_cls=gt_boxes[:, 0],
+            target_img=np.unique(gt_boxes[:, 0])
         )
+        self.seen += 1
 
         # 没有预测时或着没有GT时, 立即整备self.stats, 并结束
         if pred_boxes.shape[0] == 0 or gt_boxes.shape[0] == 0:
@@ -985,12 +998,46 @@ class StatisticMatrix(StatisticSimple):
 
         return None
     
+    @staticmethod
+    def bincount(x, minlength=None):
+        if x.shape[0] and isinstance(x[0], np.str_):
+            res = np.unique(x, return_counts=True)[1]
+        else:
+            res = np.bincount(x.astype(int), minlength=minlength)
+        return res
+    
     def get_stats(self):
         """返回分布指标统计结果"""
         stats = {k: np.concatenate(v) for k, v in self.stats.items()}
+        self.nt_per_class = self.bincount(stats['target_cls'], minlength=self.nc)
+        self.nt_per_image = self.bincount(stats['target_img'], minlength=self.nc)
         if len(stats) and stats["tp"].any():
             self.matrix.process(**stats)
         return self.matrix.results_dict
+    
+    def print_results(self):
+        """Prints training/validation set metrics per class."""
+        max_category_len = max(map(wcswidth, self.classes))
+
+        pf = f"%{max_category_len}s" + "%11i" * 2 + "%11.3g" * len(self.matrix.keys)  # print format
+        title_pf = f"%{max_category_len}s" + "%11s" * 2 + "%14s" * len(self.matrix.keys)
+        logger.info(title_pf % ("class", "images", "boxes", "precision", "recall", "mAP0.5", "mAP0.5:0.95"))
+        logger.info(pf % ("all", self.seen, self.nt_per_class.sum(), *self.matrix.mean_results()))
+        if self.nt_per_class.sum() == 0:
+            logger.warning(f"WARNING ⚠️ no labels found in {self.args.task} set, can not compute metrics without labels")
+
+        # Print results per class
+        self.name2id = {v: k for k, v in self.names.items()}
+        if self.verbose and self.nc > 1 and len(self.stats):
+            for i, c in enumerate(self.matrix.ap_class_index):
+                logger.info(
+                    pf % (
+                        self.names[self.name2id[c]], 
+                        self.nt_per_image[self.name2id[c]], 
+                        self.nt_per_class[self.name2id[c]], 
+                        *self.matrix.class_result(i)
+                    )
+                )
     
     def __call__(self, *args, **kwargs):
         entities_generator = self.load_items()
