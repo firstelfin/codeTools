@@ -1018,8 +1018,8 @@ class StatisticMatrix(StatisticSimple):
         return self.matrix.results_dict
     
     @staticmethod
-    def number_format(x, format_str: str = "{:.11.4g}"):
-        return format_str.format(x)
+    def number_format(x):
+        return f"{x:11.4g}"
     
     def print_results(self):
         """Prints training/validation set metrics per class."""

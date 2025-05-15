@@ -14,7 +14,7 @@ from .logTools import setup_logger
 from .matrix import *
 from .matchFactory import *
 
-__version__ = "0.1.11.15"
+__version__ = "0.1.11.16"
 __all__ = [
     "decorator",
     "is_async_function",
