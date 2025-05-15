@@ -1017,11 +1017,16 @@ class StatisticMatrix(StatisticSimple):
             self.matrix.process(**stats)
         return self.matrix.results_dict
     
+    @staticmethod
+    def number_format(x, format_str: str = "{:.11.4g}"):
+        return format_str.format(x)
+    
     def print_results(self):
         """Prints training/validation set metrics per class."""
         table = PrettyTable()
         table.field_names = ["class", "images", "objects", *self.matrix.keys]
-        table.add_row(["all", self.seen, self.nt_per_class.sum(), *self.matrix.mean_results()])
+        table.add_row(["all", self.seen, self.nt_per_class.sum(), 
+                       *[self.number_format(x) for x in self.matrix.mean_results()]])
 
         if self.nt_per_class.sum() == 0:
             logger.warning(f"WARNING ⚠️ no labels found in {self.args.task} set, can not compute metrics without labels")
@@ -1034,7 +1039,7 @@ class StatisticMatrix(StatisticSimple):
                     self.names[self.name2id[c]], 
                     self.nt_per_image[self.name2id[c]], 
                     self.nt_per_class[self.name2id[c]], 
-                    *self.matrix.class_result(i)
+                    *[self.number_format(x) for x in self.matrix.class_result(i)]
                 ])
         print(table)
         self.table = table
@@ -1048,9 +1053,10 @@ class StatisticMatrix(StatisticSimple):
         future_bar(self.match, entities_generator, total=total_num)
 
         # 合并self.stats, 并计算指标
-        results = self.get_stats()
+        self.get_stats()
+        self.print_results()
 
-        return results
+        return self.matrix
 
 
 
