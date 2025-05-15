@@ -17,7 +17,7 @@ from pathlib import Path, PosixPath
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
 from loguru import logger
-from wcwidth import wcswidth
+from prettytable import PrettyTable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from codeUtils.tools.fontConfig import colorstr
@@ -897,6 +897,7 @@ class StatisticMatrix(StatisticSimple):
         self.gt_suffix = gt_suffix
         self.verbose = verbose
         self.seen = 0
+        self.table = None
         
         self.matrix = DetMetrics(save_dir=self.save_dir, plot=plot, names=self.names, **kwargs)
         self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
@@ -1011,18 +1012,17 @@ class StatisticMatrix(StatisticSimple):
         stats = {k: np.concatenate(v) for k, v in self.stats.items()}
         self.nt_per_class = self.bincount(stats['target_cls'], minlength=self.nc)
         self.nt_per_image = self.bincount(stats['target_img'], minlength=self.nc)
+        stats.pop('target_img', None)
         if len(stats) and stats["tp"].any():
             self.matrix.process(**stats)
         return self.matrix.results_dict
     
     def print_results(self):
         """Prints training/validation set metrics per class."""
-        max_category_len = max(map(wcswidth, self.classes))
+        table = PrettyTable()
+        table.field_names = ["class", "images", "objects", *self.matrix.keys]
+        table.add_row(["all", self.seen, self.nt_per_class.sum(), *self.matrix.mean_results()])
 
-        pf = f"%{max_category_len}s" + "%11i" * 2 + "%11.3g" * len(self.matrix.keys)  # print format
-        title_pf = f"%{max_category_len}s" + "%11s" * 2 + "%14s" * len(self.matrix.keys)
-        logger.info(title_pf % ("class", "images", "boxes", "precision", "recall", "mAP0.5", "mAP0.5:0.95"))
-        logger.info(pf % ("all", self.seen, self.nt_per_class.sum(), *self.matrix.mean_results()))
         if self.nt_per_class.sum() == 0:
             logger.warning(f"WARNING ⚠️ no labels found in {self.args.task} set, can not compute metrics without labels")
 
@@ -1030,14 +1030,14 @@ class StatisticMatrix(StatisticSimple):
         self.name2id = {v: k for k, v in self.names.items()}
         if self.verbose and self.nc > 1 and len(self.stats):
             for i, c in enumerate(self.matrix.ap_class_index):
-                logger.info(
-                    pf % (
-                        self.names[self.name2id[c]], 
-                        self.nt_per_image[self.name2id[c]], 
-                        self.nt_per_class[self.name2id[c]], 
-                        *self.matrix.class_result(i)
-                    )
-                )
+                table.add_row([
+                    self.names[self.name2id[c]], 
+                    self.nt_per_image[self.name2id[c]], 
+                    self.nt_per_class[self.name2id[c]], 
+                    *self.matrix.class_result(i)
+                ])
+        print(table)
+        self.table = table
     
     def __call__(self, *args, **kwargs):
         entities_generator = self.load_items()
