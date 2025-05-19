@@ -443,13 +443,14 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            chinese: str | bool = False, suffix_load_func: dict = None, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = None, conf: float = 0.001, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
         :param Literal[.txt, .json, .xm] gt_suffix: 标注文件的后缀类型, defaults to ".json"
         :param dict suffix_load_func: 各类标签加载的方法, defaults to None
         :param str|list|dict classes: 类别文件路径(支持list, dict), defaults to None
+        :param float conf: 置信度阈值, defaults to 0.001
         """
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
@@ -465,6 +466,7 @@ class StatisticSimple(object):
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         if chinese:
             ConfusionMatrix.set_plt(font_path=chinese if isinstance(chinese, str) else None)
+        self.conf = conf
     
     @classmethod
     def get_classes(cls, class_file: str) -> list:
@@ -537,7 +539,7 @@ class StatisticSimple(object):
             y1 = max(0, (y - h / 2) * imgh)
             x2 = min(imgw, (x + w / 2) * imgw)
             y2 = min(imgh, (y + h / 2) * imgh)
-            label = self.classes[entity[0]+1] if self.background else self.classes[entity[0]]
+            label = self.classes[entity[0]]
             if use_conf:
                 conf = entity[5] if len(entity) == 6 else 1.0
                 gt_boxes.append([label, conf, x1, y1, x2, y2])
@@ -599,6 +601,8 @@ class StatisticSimple(object):
             img_shape = (1, 1)
         return img_shape
 
+    def middle_post_process(self, label_list: list, call_backs: list, **kwargs) -> list:
+        pass
 
 class StatisticConfusion(StatisticSimple):
     """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
@@ -648,7 +652,7 @@ class StatisticConfusion(StatisticSimple):
             classes: str = 'classes.txt', chinese: bool = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
-            use_fpfn: bool = False, **kwargs
+            use_fpfn: bool = False, conf: float = 0.001,  **kwargs
         ):
         """初始化统计类
 
@@ -676,7 +680,7 @@ class StatisticConfusion(StatisticSimple):
         super().__init__(
             gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
             suffix_load_func=kwargs.get('suffix_load_func', None),
-            classes=classes, chinese=chinese, **kwargs
+            classes=classes, chinese=chinese, conf=conf, **kwargs
         )
         assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"
         assert pred_suffix in self.suffix_load_func, f"不支持的预测文件后缀名{pred_suffix}"
@@ -802,6 +806,10 @@ class StatisticConfusion(StatisticSimple):
 
         return True
 
+    def middle_filter(self, label_list: list, **kwargs) -> list:
+        res = [lbl for lbl in label_list if lbl[1] >= self.conf]
+        return res
+
     def __call__(self, iou_thresh: float = 0.5, ios_thresh: float = 0.5, rendering: bool = False, *args, **kwargs):
         """统计接口
 
@@ -882,7 +890,7 @@ class StatisticMatrix(StatisticSimple):
         ):
         super().__init__(
             pred_suffix=pred_suffix, gt_suffix=gt_suffix,
-            classes=classes, chinese=chinese, **kwargs
+            classes=classes, chinese=chinese, conf=1e-6 **kwargs
         )
         assert pred_dir is not None and gt_dir is not None, "预测结果目录和标注文件目录不能为空"
         self.pred_dir = pred_dir if isinstance(pred_dir, list) else [pred_dir]
@@ -999,16 +1007,19 @@ class StatisticMatrix(StatisticSimple):
 
         return None
     
-    @staticmethod
-    def bincount(x, minlength=None):
+    def bincount(self, x, minlength=None):
         if x.shape[0] and isinstance(x[0], np.str_):
-            res = np.unique(x, return_counts=True)[1]
+            res_value, res_count = np.unique(x, return_counts=True)
+            res = np.zeros(max(minlength, res_value.shape[0]), dtype=int)
+            res_index = np.array([self.name2id[v] for v in res_value], dtype=int)
+            res[res_index] = res_count
         else:
             res = np.bincount(x.astype(int), minlength=minlength)
         return res
     
     def get_stats(self):
         """返回分布指标统计结果"""
+        self.name2id = {v: k for k, v in self.names.items()}
         stats = {k: np.concatenate(v) for k, v in self.stats.items()}
         self.nt_per_class = self.bincount(stats['target_cls'], minlength=self.nc)
         self.nt_per_image = self.bincount(stats['target_img'], minlength=self.nc)
@@ -1032,7 +1043,6 @@ class StatisticMatrix(StatisticSimple):
             logger.warning(f"WARNING ⚠️ no labels found in {self.args.task} set, can not compute metrics without labels")
 
         # Print results per class
-        self.name2id = {v: k for k, v in self.names.items()}
         if self.verbose and self.nc > 1 and len(self.stats):
             for i, c in enumerate(self.matrix.ap_class_index):
                 table.add_row([
