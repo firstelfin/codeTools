@@ -443,14 +443,14 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            chinese: str | bool = False, suffix_load_func: dict = None, conf: float = 0.001, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = None, conf: float | list = 0.001, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
         :param Literal[.txt, .json, .xm] gt_suffix: 标注文件的后缀类型, defaults to ".json"
         :param dict suffix_load_func: 各类标签加载的方法, defaults to None
         :param str|list|dict classes: 类别文件路径(支持list, dict), defaults to None
-        :param float conf: 置信度阈值, defaults to 0.001
+        :param float | list conf: 置信度阈值, defaults to 0.001
         """
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
@@ -466,8 +466,19 @@ class StatisticSimple(object):
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         if chinese:
             ConfusionMatrix.set_plt(font_path=chinese if isinstance(chinese, str) else None)
-        self.conf = conf
+        self.conf = self.set_conf(conf)
     
+    def set_conf(self, conf: float | list):
+        """设置置信度阈值"""
+        conf_dict = dict()
+        if isinstance(conf, list):
+            if len(conf) < len(self.classes):
+                conf.extend([conf[-1]] * (len(self.classes) - len(conf)))
+            conf_dict = {cls_name: c for cls_name, c in zip(self.classes, conf[:len(self.classes)])}
+        if isinstance(conf, float):
+            conf_dict = {cls_name: conf for cls_name in self.classes}
+        return conf_dict
+
     @classmethod
     def get_classes(cls, class_file: str) -> list:
         """获取类别列表
@@ -601,8 +612,15 @@ class StatisticSimple(object):
             img_shape = (1, 1)
         return img_shape
 
+    def conf_filter(cls, label_list: list, conf_thresh: dict) -> list:
+        """根据置信度阈值过滤预测结果"""
+        res_lbl = [lbl for lbl in label_list if lbl[1] >= conf_thresh[lbl[0]]]
+        return res_lbl
+
     def middle_post_process(self, label_list: list, call_backs: list, **kwargs) -> list:
-        pass
+        for call_back in call_backs:
+            label_list = call_back(label_list, **kwargs)
+        return label_list
 
 class StatisticConfusion(StatisticSimple):
     """加载 PredictBase 推理结果 和 标签文件, 统计各类别的数量, 并保存到统计文件中
@@ -652,7 +670,7 @@ class StatisticConfusion(StatisticSimple):
             classes: str = 'classes.txt', chinese: bool = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
-            use_fpfn: bool = False, conf: float = 0.001,  **kwargs
+            use_fpfn: bool = False, conf: float | list = 0.001,  **kwargs
         ):
         """初始化统计类
 
@@ -676,6 +694,8 @@ class StatisticConfusion(StatisticSimple):
         :type pred_suffix: Literal[".txt", ".json", ".xml"], optional
         :param use_fpfn: 是否使用FP, FN保存为子数据集, defaults to False
         :type use_fpfn: bool, optional
+        :param conf: 置信度阈值, 默认为0.001, 也可以传入一个列表, 对应每个类别的置信度阈值
+        :type conf: float | list, optional
         """
         super().__init__(
             gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
@@ -787,6 +807,8 @@ class StatisticConfusion(StatisticSimple):
         # 匹配预测结果和标签文件
         pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
         gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
+        # 过滤中间态结果
+        pred_boxes = self.middle_filter(pred_boxes, **kwargs)
         # 计算IoU
         ios_thresh = kwargs.get('ios_thresh', 0.5)
         iou_thresh = kwargs.get('iou_thresh', 0.5)
@@ -890,7 +912,7 @@ class StatisticMatrix(StatisticSimple):
         ):
         super().__init__(
             pred_suffix=pred_suffix, gt_suffix=gt_suffix,
-            classes=classes, chinese=chinese, conf=1e-6 **kwargs
+            classes=classes, chinese=chinese, conf=1e-6, **kwargs
         )
         assert pred_dir is not None and gt_dir is not None, "预测结果目录和标注文件目录不能为空"
         self.pred_dir = pred_dir if isinstance(pred_dir, list) else [pred_dir]
