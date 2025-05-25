@@ -475,8 +475,10 @@ class StatisticSimple(object):
             if len(conf) < len(self.classes):
                 conf.extend([conf[-1]] * (len(self.classes) - len(conf)))
             conf_dict = {cls_name: c for cls_name, c in zip(self.classes, conf[:len(self.classes)])}
-        if isinstance(conf, float):
+        elif isinstance(conf, float):
             conf_dict = {cls_name: conf for cls_name in self.classes}
+        else:
+            raise ValueError(f"不支持的置信度阈值类型{type(conf)}")
         return conf_dict
 
     @classmethod
@@ -808,7 +810,7 @@ class StatisticConfusion(StatisticSimple):
         pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
         gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
         # 过滤中间态结果
-        pred_boxes = self.middle_filter(pred_boxes, **kwargs)
+        pred_boxes = self.middle_post_process(pred_boxes, [self.conf_filter],  conf_thresh=self.conf, **kwargs)
         # 计算IoU
         ios_thresh = kwargs.get('ios_thresh', 0.5)
         iou_thresh = kwargs.get('iou_thresh', 0.5)
@@ -827,10 +829,6 @@ class StatisticConfusion(StatisticSimple):
             self.save_fpfn_pipeline(match_object, gt_file, img_shape)
 
         return True
-
-    def middle_filter(self, label_list: list, **kwargs) -> list:
-        res = [lbl for lbl in label_list if lbl[1] >= self.conf]
-        return res
 
     def __call__(self, iou_thresh: float = 0.5, ios_thresh: float = 0.5, rendering: bool = False, *args, **kwargs):
         """统计接口
