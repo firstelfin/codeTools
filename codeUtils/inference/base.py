@@ -574,7 +574,7 @@ class StatisticSimple(object):
             label = obj["name"]
             x1, y1, x2, y2 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"], obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
             if use_conf:
-                conf = obj.get('confidence', 1.0)
+                conf = min(obj.get('conf', 1.0), obj.get('score', 1.0))
                 result.append([label, conf, x1, y1, x2, y2])
             else:
                 result.append([label, x1, y1, x2, y2])
@@ -614,7 +614,7 @@ class StatisticSimple(object):
             img_shape = (1, 1)
         return img_shape
 
-    def conf_filter(cls, label_list: list, conf_thresh: dict) -> list:
+    def conf_filter(cls, label_list: list, conf_thresh: dict, **kwargs) -> list:
         """根据置信度阈值过滤预测结果"""
         res_lbl = [lbl for lbl in label_list if lbl[1] >= conf_thresh[lbl[0]]]
         return res_lbl
@@ -731,7 +731,7 @@ class StatisticConfusion(StatisticSimple):
         # 初始化统计的matrix
         self.matrix = ConfusionMatrix(len(self.classes), self.classes)
         self.use_fpfn = use_fpfn
-        self.call_backs = [self.delete_conf, self.delete_conf]
+        self.call_backs = [self.conf_filter, self.delete_conf]
     
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
