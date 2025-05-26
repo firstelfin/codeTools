@@ -443,14 +443,14 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            chinese: str | bool = False, suffix_load_func: dict = None, conf: float | list = 0.001, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = None, conf: float | list = 0, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
         :param Literal[.txt, .json, .xm] gt_suffix: 标注文件的后缀类型, defaults to ".json"
         :param dict suffix_load_func: 各类标签加载的方法, defaults to None
         :param str|list|dict classes: 类别文件路径(支持list, dict), defaults to None
-        :param float | list conf: 置信度阈值, defaults to 0.001
+        :param float | list conf: 置信度阈值, defaults to 0
         """
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
@@ -619,7 +619,22 @@ class StatisticSimple(object):
         res_lbl = [lbl for lbl in label_list if lbl[1] >= conf_thresh[lbl[0]]]
         return res_lbl
 
+    def delete_conf(self, label_list: list, **kwargs) -> list:
+        """删除预测结果中的置信度信息, 只保留类别和框信息
+
+        :param list label_list: 预测结果列表
+        :return list: 删除置信度后的预测结果列表
+        """
+        res_lbl = [[lbl[0], *lbl[2:]] for lbl in label_list]
+        return res_lbl
+
     def middle_post_process(self, label_list: list, call_backs: list, **kwargs) -> list:
+        """标签归纳到中间态后的后处理, 调用回调函数对标签进行处理
+
+        :param list label_list: 预测结果列表
+        :param list call_backs: 回调函数列表
+        :return list: 处理后的标签列表
+        """
         for call_back in call_backs:
             label_list = call_back(label_list, **kwargs)
         return label_list
@@ -672,7 +687,7 @@ class StatisticConfusion(StatisticSimple):
             classes: str = 'classes.txt', chinese: bool = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
-            use_fpfn: bool = False, conf: float | list = 0.001,  **kwargs
+            use_fpfn: bool = False, conf: float | list = 0,  **kwargs
         ):
         """初始化统计类
 
@@ -716,6 +731,7 @@ class StatisticConfusion(StatisticSimple):
         # 初始化统计的matrix
         self.matrix = ConfusionMatrix(len(self.classes), self.classes)
         self.use_fpfn = use_fpfn
+        self.call_backs = [self.delete_conf, self.delete_conf]
     
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
@@ -807,10 +823,10 @@ class StatisticConfusion(StatisticSimple):
         gt_entities = self.load_lbl_data(gt_file, self.gt_suffix)
         img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
         # 匹配预测结果和标签文件
-        pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
+        pred_conf_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape, use_conf=True)
         gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
         # 过滤中间态结果
-        pred_boxes = self.middle_post_process(pred_boxes, [self.conf_filter],  conf_thresh=self.conf, **kwargs)
+        pred_boxes = self.middle_post_process(pred_conf_boxes, self.call_backs,  conf_thresh=self.conf, **kwargs)
         # 计算IoU
         ios_thresh = kwargs.get('ios_thresh', 0.5)
         iou_thresh = kwargs.get('iou_thresh', 0.5)
