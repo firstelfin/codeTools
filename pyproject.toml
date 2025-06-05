@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+
+name = "elfinCodeUtils"
+dynamic = ["version"]
+description = "常用功能模块快速使用库."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1", "msgpack>=1.1.0",
+    "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click", "pyyaml", "httpx", "psutil",
+    "BeautifulSoup4", "tqdm", "lxml", "openpyxl", "prettytable"
+]
+
+#[tool.poetry.extras]
+#augment = ["codeUtils.augment"]
+
+[tool.setuptools.dynamic]
+version = { attr = "codeUtils.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["codeUtils"]
+exclude = ["codeUtils.augment"]
+
+[project.scripts]
+# 命令 = "包名.模块:函数"
+#code-tool = ""
+elfin = "codeUtils.scripts.elfinCli:elfin"
+
+#[project.urls]
+#"Homepage" = "https://github.com/firstelfin/codeTools"
+#"Bug Tracker" = ""

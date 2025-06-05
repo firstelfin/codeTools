@@ -1,0 +1,5 @@
+# 包括 codeUtils 文件夹下的所有内容
+recursive-include codeUtils *
+
+# 可选的，包含 elfin 文件夹
+recursive-include codeUtils/augment *
