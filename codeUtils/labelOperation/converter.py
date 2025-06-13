@@ -388,43 +388,13 @@ class COCOToAll(ABC):
                 })
 
     @abstractmethod
-    def save_label(self, img_path: str, labelme_dict: dict):
+    def save_label(self, img_path: str, labelme_dict: dict, **kwargs):
         save_label_file = self.dst_dir / f"{Path(img_path).stem}.json"
         save_labelme_label(save_label_file, labelme_dict)
 
     def __call__(self, *args, **kwargs):
         cpu_num = max(os.cpu_count() // 2, 6)
-        error_list = []
-        with ThreadPoolExecutor(max_workers=cpu_num) as executor:
-            
-            res = []
-            for img_path, labelme_dict in self.coco_instances.items():
-                res.append(executor.submit(self.save_label, img_path, labelme_dict, kwargs.get("extra_keys", [])))
-            
-            call_bar = tqdm(
-                as_completed(res),
-                total=len(res),
-                colour='#CD8500',
-                desc=self.__class__.__name__
-            )
-            for cb in call_bar:
-                try:
-                    cb.result(timeout=60)
-                except Exception as e:
-                    error_list.append((img_path, e))
-                call_bar.set_postfix({'errorNum': len(error_list)})
-
-            if error_list:
-                logger.error(f"Retrying {len(error_list)} failed tasks.")
-                new_res = [
-                    executor.submit(self.save_label, fail.img_path, fail.labelme_dict, fail.extra_keys) for fail in error_list
-                ]
-                for fail_res in as_completed(new_res):
-                    try:
-                        fail_res.result(timeout=60)
-                    except Exception as e:
-                        logger.error(f"Failed to save {img_path}: {e}")
-
-
-
+        params = [([img_path, labelme_dict], kwargs) for img_path, labelme_dict in self.coco_instances.items()]
+        exec_bar = FutureBar(max_workers=cpu_num, timeout=kwargs.get("timeout", 20), desc=self.__class__.__name__)
+        exec_bar(self.save_label, params, total=len(params))
 

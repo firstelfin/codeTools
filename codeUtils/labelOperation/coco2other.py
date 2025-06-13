@@ -131,7 +131,7 @@ class COCO2Labelme(COCOToAll):
         super().__init__(img_dir, lbl_file, dst_dir)
     
     def save_label(self, img_path: str, labelme_dict: dict, **kwargs):
-        super().save_label(img_path, labelme_dict)
+        super().save_label(img_path, labelme_dict, **kwargs)
 
 
 class COCO2VOC(COCOToAll):
@@ -139,7 +139,7 @@ class COCO2VOC(COCOToAll):
     def __init__(self, img_dir: str, lbl_file: str, dst_dir: str):
         super().__init__(img_dir, lbl_file, dst_dir)
     
-    def save_label(self, img_path: str, labelme_dict: dict, extra_keys: list = []):
+    def save_label(self, img_path: str, labelme_dict: dict, extra_keys: list = [], **kwargs):
         xml_file = self.dst_dir / f"{Path(img_path).stem}.xml"
         voc_dict = {
             'folder': self.dst_dir.name,
