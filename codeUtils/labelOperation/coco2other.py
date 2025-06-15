@@ -200,12 +200,12 @@ class COCO2VOC(COCOToAll):
         save_voc_label(xml_file, voc_dict)
 
 
-def coco2labelme(img_dir: str, lbl_file: str, dst_dir: str):
+def coco2labelme(img_dir: str, lbl_file: str, dst_dir: str, **kwargs):
     converter = COCO2Labelme(img_dir, lbl_file, dst_dir)
-    converter()
+    converter(**kwargs)
 
 
-def coco2voc(img_dir: str, lbl_file: str, dst_dir: str, extra_keys: list = []):
+def coco2voc(img_dir: str, lbl_file: str, dst_dir: str, extra_keys: list = [], **kwargs):
     converter = COCO2VOC(img_dir, lbl_file, dst_dir)
-    converter(extra_keys=extra_keys)
+    converter(extra_keys=extra_keys, **kwargs)
 

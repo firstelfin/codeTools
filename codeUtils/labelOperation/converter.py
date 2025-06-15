@@ -395,6 +395,11 @@ class COCOToAll(ABC):
     def __call__(self, *args, **kwargs):
         cpu_num = max(os.cpu_count() // 2, 6)
         params = [([img_path, labelme_dict], kwargs) for img_path, labelme_dict in self.coco_instances.items()]
-        exec_bar = FutureBar(max_workers=cpu_num, timeout=kwargs.get("timeout", 20), desc=self.__class__.__name__)
+        exec_bar = FutureBar(
+            max_workers=cpu_num, 
+            use_process=kwargs.get("use_process", False), 
+            timeout=kwargs.get("timeout", 20), 
+            desc=self.__class__.__name__
+        )
         exec_bar(self.save_label, params, total=len(params))
 
