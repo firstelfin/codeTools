@@ -47,12 +47,12 @@ def xywh2xyxy(bbox: list) -> list:
     return [a1, b1, a2, b2]
 
 
-def ios_box(box1: list, box2: list, mode: str="xywh", double: bool=False):
+def ios_box(box1: list, box2: list, mode: str="xyxy", double: bool=False):
     """交自比
 
     :param list box1: 预测bbox
     :param list box2: 匹配的查询bbox
-    :param str mode: bbox的组成模式, 'xywh'表示框中心和宽高, defaults to 'xywh', options: ['xywh', 'xyxy']
+    :param str mode: bbox的组成模式, 'xywh'表示框中心和宽高, defaults to 'xyxy', options: ['xywh', 'xyxy']
     :param bool double: 是否双边计算, defaults to False
     """
     if mode not in ["xywh", "xyxy"]:
@@ -80,14 +80,22 @@ def ios_box(box1: list, box2: list, mode: str="xywh", double: bool=False):
     return ios
 
 
-def iou_box(box1: list, box2: list) -> float:
+def iou_box(box1: list, box2: list, mode: str="xyxy", **kwargs) -> float:
     """计算两个边框的交并比
 
     :param list box1: x1, y1, x2, y2分别是左上和右下角坐标
     :param list box2: x1, y1, x2, y2分别是左上和右下角坐标
+    :param str mode: bbox的组成模式, 'xywh'表示框中心和宽高, defaults to 'xyxy', options: ['xywh', 'xyxy']
     :raises Exception: box坐标不符合要求
     :return float: 交并比数值
     """
+    if mode not in ["xywh", "xyxy"]:
+        raise Exception("modeError: IOP_box的mode参数不在可选范围内.")
+
+    if mode == "xywh":
+        box1 = xywh2xyxy(box1)
+        box2 = xywh2xyxy(box2)
+
     if not box_valid(box1) or not box_valid(box2):
         raise Exception(f"bboxError: 边框的坐标不符合要求, bbox1={box1}, bbox2={box2}.")
     _, inter_area = inter_box(box1, box2)
