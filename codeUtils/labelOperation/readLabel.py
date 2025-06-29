@@ -9,21 +9,24 @@
 '''
 
 import json
+from pathlib import Path
 from bs4 import BeautifulSoup
 
 
-def parser_json(json_file: str):
+def parser_json(json_file: str | Path):
     """读取json文件, 返回一个字典"""
-    try:
-        with open(json_file, 'r') as f:
-            data = json.load(f)
-    except:
-        return None
-    
-    return data
+    for _ in range(3):
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            if data is not None:
+                return data
+        except:
+            continue
+    return None
 
 
-def read_yolo(label_file: str):
+def read_yolo(label_file: str | Path):
     """读取yolo格式的标签文件, 返回一个列表"""
     try:
         with open(label_file, 'r') as f:
@@ -43,10 +46,10 @@ def read_yolo(label_file: str):
     return labels
 
 
-def read_voc(label_file: str, extra_keys: list = None) -> dict:
+def read_voc(label_file: str | Path, extra_keys: list = []) -> dict | None:
     """读取voc格式的标签文件, 返回一个json对象, 指定extra_keys可以读取标注实例中额外的键值对
 
-    :param str label_file: voc格式的标签文件路径
+    :param str | Path label_file: voc格式的标签文件路径
     :param list extra_keys: 额外需要添加到object元素字典中的键列表, 格式为["key1", "key2",...]
     :return dict: voc格式的标签文件内容, 组织格式是超文本标签组织格式的映射
     """
@@ -57,37 +60,45 @@ def read_voc(label_file: str, extra_keys: list = None) -> dict:
             xml_str = f.read()
     except:
         return None
-    
-    if extra_keys is None:
-        extra_keys = []
 
     # 解析xml文件
     soup = BeautifulSoup(xml_str, 'xml')
 
+    def safe_text(tag, default=""):
+        return tag.text.strip() if tag else default
+    
+    def safe_find(tag, *keys):
+        """安全地进行多级 find() TODO: 形参是否会改变实参"""
+        for key in keys:
+            if tag is None:
+                return None
+            tag = tag.find(key)
+        return tag
+
     voc_dict = {
-        'folder': soup.find('folder').text if soup.find('folder') else "",
-        'filename': soup.find('filename').text if soup.find('filename') else "",
-        'path': soup.find('path').text if soup.find('path') else "",
-        'source': {"database": soup.find('source').find('database').text if soup.find('source') else "Unknown"},
-        'segmented': int(soup.find('segmented').text) if soup.find('segmented') else 0,
+        'folder': safe_text(soup.find('folder')),
+        'filename': safe_text(soup.find('filename')),
+        'path': safe_text(soup.find('path')),
+        'source': {"database": safe_text(safe_find(soup, 'source', 'database'), "Unknown")},
+        'segmented': int(safe_text(soup.find('segmented'), "0")),
         'size': {
-            'width': int(soup.find('size').find('width').text),
-            'height': int(soup.find('size').find('height').text),
-            'depth': int(soup.find('size').find('depth').text) if soup.find('size').find('depth') else 3
+            'width': int(safe_text(safe_find(soup, "size", "width"), "0")),
+            'height': int(safe_text(safe_find(soup, "size", "height"), "0")),
+            'depth': int(safe_text(safe_find(soup, "size", "depth"), "3")),
         },
         'object': [
             {
-                'name': obj.find('name').text,
-                'pose': obj.find('pose').text if obj.find('pose') else "Unspecified",
-                'truncated': int(obj.find('truncated').text) if obj.find('truncated') else 0,
-                'difficult': int(obj.find('difficult').text) if obj.find('difficult') else 0,
+                'name': safe_text(safe_find(obj, 'name')),
+                'pose': safe_text(safe_find(obj, 'pose'), default="Unspecified"),
+                'truncated': int(safe_text(safe_find(obj, 'truncated'), default="0")),
+                'difficult': int(safe_text(safe_find(obj, 'difficult'), default="0")),
                 'bndbox': {
-                    'xmin': int(float((obj.find('bndbox').find('xmin').text))),
-                    'ymin': int(float((obj.find('bndbox').find('ymin').text))),
-                    'xmax': int(float((obj.find('bndbox').find('xmax').text))),
-                    'ymax': int(float((obj.find('bndbox').find('ymax').text)))
+                    'xmin': int(float(safe_text(safe_find(obj, 'bndbox', 'xmin'), default="0"))),
+                    'ymin': int(float(safe_text(safe_find(obj, 'bndbox', 'ymin'), default="0"))),
+                    'xmax': int(float(safe_text(safe_find(obj, 'bndbox', 'xmax'), default="0"))),
+                    'ymax': int(float(safe_text(safe_find(obj, 'bndbox', 'ymax'), default="0")))
                 },
-                **{key: obj.find(key).text for key in extra_keys}
+                **{key: safe_text(safe_find(obj, key)) for key in extra_keys}
             } for obj in soup.find_all('object')
         ]
     }

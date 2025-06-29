@@ -9,7 +9,7 @@
 '''
 
 import json
-from pathlib import Path
+from pathlib import Path, PosixPath
 from lxml import etree
 from bs4 import BeautifulSoup
 
@@ -57,12 +57,12 @@ VOC_HEADER = {
 }
 
 
-def save_json(json_file: str, data):
+def save_json(json_file: str | Path, data: dict):
     with open(json_file, 'w+', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-def save_labelme_label(label_path: str, label_dict: dict):
+def save_labelme_label(label_path: str | Path, label_dict: dict):
     """保存labelme格式的标签文件
 
     :param label_path: labelme格式的标签文件路径

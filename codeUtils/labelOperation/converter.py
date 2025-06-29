@@ -12,97 +12,273 @@ import os
 import time
 import shutil
 import cv2 as cv
-from typing import Literal
+from enum import Enum
+from typing import Literal, Callable, Optional
 from loguru import logger
 from tqdm import tqdm
 from abc import ABC, abstractmethod
 from pathlib import Path, PosixPath
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from codeUtils.labelOperation.readLabel import read_txt, parser_json
+from codeUtils.labelOperation.readLabel import read_txt, read_yolo, read_voc, parser_json
 from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label
 from codeUtils.tools.futureConf import FutureBar
+from codeUtils.tools.loadFile import load_img
 
 
-# @dataclass
-# class StandardData(object):
-#     version: str = field(default='0.5.6')
-#     flags: dict = field(default_factory=dict)
-#     shapes: list = field(default_factory=list)
-#     imagePath: str = field(default='')
-#     imageData: bytes = field(default=None)
-#     imageHeight: int = field(default=0)
-#     imageWidth: int = field(default=0)
-
-#     @staticmethod
-#     def from_dict(data_dict):
-#         return StandardData(
-#             version=data_dict.get('version', '0.5.6'),
-#             flags=data_dict.get('flags', {}),
-#             shapes=data_dict.get('shapes', []),
-#             imagePath=data_dict.get('imagePath', ''),
-#             imageData=data_dict.get('imageData', None),
-#             imageHeight=data_dict.get('imageHeight', 0),
-#             imageWidth=data_dict.get('imageWidth', 0)
-#         )
+@dataclass(slots=True)
+class ShapeInstance(object):
+    """实例数据结构
     
-#     def to_dict(self):
-#         return {
-#             'version': self.version,
-#             'flags': self.flags,
-#             'shapes': self.shapes,
-#             'imagePath': self.imagePath,
-#             'imageData': self.imageData,
-#             'imageHeight': self.imageHeight,
-#             'imageWidth': self.imageWidth
-#         }
+    Attributes:
+        label (str|int): 实例标签
+        points (list[list[int|float]]): 实例坐标点
+        shape_type (str): 实例类型, 如"polygon", "rectangle"
+        flags (dict): 实例标注属性
+        score (float): 实例分数
+    """
+
+    label: str | int
+    points: list[list[int|float]] = field(default_factory=list)
+    shape_type: Literal["polygon", "rectangle"] = field(default="rectangle")
+    flags: dict = field(default_factory=dict)
+    score: float = field(default=1.0)
 
 
-# class BaseConverter(object):
-#     """标注数据转换基类
+@dataclass(slots=True)
+class LabelmeData(object):
+    """标准化转换中间态数据结构, 以labelme格式为准
 
-#     定义数据转换的中间态结构, 输入输出根据不同格式设计接口
+    Attributes:
+        shapes (list[ShapeInstance]): 标注实例列表
+        imagePath (str): 图片路径
+        imageHeight (int): 图片高度
+        imageWidth (int): 图片宽度
+    """
 
-#     :param _type_ object: _description_
-#     """
+    shapes: list[ShapeInstance] = field(default_factory=list)
+    imagePath: str = field(default='')
+    imageHeight: int = field(default=0)
+    imageWidth: int = field(default=0)
 
-#     def __init__(self):
-#         pass
 
-#     @staticmethod
-#     def from_labelme(args: dict):
-#         return BaseConverter()
+class DectConverter(object):
+    """检测、分割数据转换基类
 
-#     @staticmethod
-#     def from_coco(args: dict):
-#         return BaseConverter()
-
-#     @staticmethod
-#     def from_voc(args: dict):
-#         return BaseConverter()
+    定义LabelmeData转为其他数据类的接口, 并提供转换的统一入口.
     
-#     @staticmethod
-#     def standardize(lbl_objs: list | dict) -> dict:
-#         """标签数据实例标注数据标准化
+    处理流程:
+    
+    ```mermaid
+    graph TD
+        A[接收 LabelmeData 对象] --> B{判断对象类型}
+        B -- 标注文件独立 --> C[直接输出新的标签文件]
+        B -- 标注文件耦合 --> D[转换为中间状态并缓存]
+        D --> E[等待统一保存]
+        F[调用 save_all 方法] --> G[遍历缓存的耦合对象]
+        G --> H[逐个保存为目标格式文件]
+    ```
+    
+    """
 
-#         :param list | dict lbl_objs: 标签数据实例
-#         :return dict: 标准化后的标签数据实例(labelme的格式)
-#         """
-#         if isinstance(lbl_objs, list):
-#             pass
-#         elif isinstance(lbl_objs, dict) and 'shapes' in lbl_objs:
-#             return lbl_objs
-#         elif isinstance(lbl_objs, dict) and 'object' in lbl_objs:
-#             return 
-#         else:
-#             raise TypeError("Invalid label data format. Only support yolo, voc, labelme, coco format.")
+    def __init__(self, src_dir: list, dst_dir: str, split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
+                 year: str = '', class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {}, **kwargs):
+        """初始化转换器"""
+        if isinstance(src_dir, str):
+            src_dir = [src_dir]
+        self.src_dir = src_dir
+        self.classes = classes
+        self.names = names if names else {i: self.classes[i] for i in range(len(self.classes))}
 
+    def __call__(self, *args, **kwargs):
+        """转换入口"""
+
+    def pre_validate(
+            self, 
+            lbl_file: str | Path | None, 
+            save_dir: str | Path | None, 
+            img_file: str | Path | None = None
+        ) -> tuple[Path, Path, Path]:
+        if lbl_file is None:
+            raise ValueError("lbl_file is None. Expected a label file path.")
+        if save_dir is None:
+            raise ValueError("save_dir is None. Expected a save directory path.")
+        if img_file is None:
+            res_img = Path("")
+        else:
+            res_img = Path(img_file)
+        return Path(lbl_file), Path(save_dir), res_img
+    
+    def to_labelme(
+            self, lbmd: LabelmeData | None = None, 
+            lbl_file: str | Path | None = None, 
+            img_file: str | Path | None = None, 
+            read_func: Callable[[str | Path, str | Path], LabelmeData] | None = None, 
+            save_dir: str | Path | None = None
+        ) -> None:
+        """转为labelme格式的标准输出接口.
+
+        :param lbmd: 标准的LabelmeData对象, defaults to None
+        :type lbmd: LabelmeData | None, optional
+        :param lbl_file: 源标注文件, defaults to None
+        :type lbl_file: str | None, optional
+        :param img_file: 源图像文件, defaults to None
+        :type img_file: str | None, optional
+        :param read_func: 读取标签的函数, defaults to None
+        :type read_func: Callable | None, optional
+        :param save_dir: 保存目录, defaults to None
+        :type save_dir: str | None, optional
+        """
+
+        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
         
-#     pass
+        labelme_update = {
+            "version": "4.5.6",
+            "flags": {},
+            "imageData": None,
+        }
+        save_file_path = save_dir / f"{lbl_file.stem}.json"
 
+        # lbmd是None, 读取标签文件
+        if lbmd is None:
+            if read_func is None:
+                raise TypeError("read_func is None. Expected a callable function to read label file.")
+            lbmd = read_func(lbl_file, img_file)
 
-# class NamesConverter(object):
-#     pass
+        # 基于LabelmeData对象转换
+        if lbmd is not None and isinstance(lbmd, LabelmeData):
+            lbl_dict = asdict(lbmd)
+            lbl_dict.update(labelme_update)
+            save_labelme_label(save_file_path, lbl_dict)
+        elif lbmd is not None:
+            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
+        else:
+            # lbmd是None, 保存空实例文件, 图像路径与图像size需要根据实际情况填写
+            src_img = load_img(img_file)
+            if img_file is None:
+                raise ValueError(f"img_file is None. Expected a image file path. got lbl_file: {lbl_file}.")
+            elif src_img is None:
+                raise FileExistsError(f"Failed to load image file {img_file}.")
+            img_h, img_w = src_img.shape[:2]
+            labelme_update.update({"shapes": [], "imagePath": Path(img_file).name, "imageHeight": img_h, "imageWidth": img_w})
+            save_labelme_label(save_file_path, labelme_update)
+
+    def to_yolo(
+            self, lbmd: LabelmeData | None = None, 
+            lbl_file: str | Path | None = None, 
+            img_file: str | Path | None = None, 
+            read_func: Callable[[str | Path], LabelmeData] | None = None, 
+            save_dir: str | Path | None = None,
+        ) -> None:
+        """转为yolo格式的标准输出接口.
+
+        :param lbmd: 标准的LabelmeData对象, defaults to None
+        :type lbmd: LabelmeData | None, optional
+        :param lbl_file: 源标注文件, defaults to None
+        :type lbl_file: str | Path | None
+        :param img_file: 源图像文件, defaults to None
+        :type img_file: str | Path | None, optional
+        :param read_func: 读取标签的函数, defaults to None
+        :type read_func: Callable[[str | Path], LabelmeData] | None, optional
+        :param save_dir: 保存目录, defaults to None
+        :type save_dir: str | Path | None, optional
+        """
+        
+        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+
+    @classmethod
+    def from_labelme(cls, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
+        """从labelme标注文件读取数据, 并返回LabelmeData对象.
+
+        :param lbl_file: labelme格式的标注文件路径
+        :type lbl_file: str | Path
+        :param img_file: 图像文件路径
+        :type img_file: str | Path
+        :return: 标准化的LabelmeData对象
+        :rtype: LabelmeData
+        """
+        res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
+        # 读取labelme格式的标注文件
+        lbl_dict = parser_json(lbl_file)
+        if lbl_dict is None:
+            if not Path(lbl_file).exists():
+                src_img = load_img(img_file)
+                if src_img is None:
+                    raise FileExistsError(f"Failed to load image file {img_file}.")
+                img_h, img_w = src_img.shape[:2]
+                res.imageHeight = img_h
+                res.imageWidth = img_w
+            else:
+                raise FileExistsError(f"Failed to load label file {lbl_file}.")
+        else:
+            res.shapes = [
+                ShapeInstance(
+                    label=shape["label"], 
+                    points=shape["points"], 
+                    shape_type=shape["shape_type"], 
+                    flags=shape.get("flags", {}), 
+                    score=shape.get("score", 1.0)
+                ) for shape in lbl_dict.get("shapes", [])
+            ]
+        return res
+
+    def from_yolo(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
+        """从yolo标注文件读取数据, 并返回LabelmeData对象.
+
+        :param lbl_file: yolo格式的标注文件路径
+        :type lbl_file: str | Path
+        :param img_file: 图像文件路径
+        :type img_file: str | Path
+        :return: 标准化的LabelmeData对象
+        :rtype: LabelmeData
+        """
+        
+        # 初始化LabelmeData对象
+        res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
+        src_img = load_img(img_file)
+        if src_img is None:
+            raise FileExistsError(f"Failed to load image file {img_file}.")
+        img_h, img_w = src_img.shape[:2]
+        res.imageHeight = img_h
+        res.imageWidth = img_w
+
+        # 读取yolo格式的标注文件
+        lbl_list = read_yolo(lbl_file)
+        if lbl_list is None:
+            lbl_list = []
+        
+        # 转换为LabelmeData对象
+        for label, *points in lbl_list:
+            label_name = self.names.get(label, str(label))
+            if len(points) % 2 != 0:
+                conf = points[-1]
+                points = points[:-1]
+            else:
+                conf = 1.0
+            if len(points) != 4:
+                points = [[points[2*i]*img_w, points[2*i+1]*img_h] for i in range(len(points)//2)]
+                shape_type = "polygon"
+            else:
+                cx = points[0] * img_w
+                cy = points[1] * img_h
+                w = points[2] * img_w
+                h = points[3] * img_h
+                points = [[cx-w/2, cy-h/2], [cx+w/2, cy+h/2]]
+                shape_type = "rectangle"
+            res.shapes.append(
+                ShapeInstance(label=label_name, points=points, shape_type=shape_type, flags={}, score=conf)
+            )
+        return res
+    
+    def from_voc(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
+        res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
+        # 读取voc格式的标注文件
+        read_voc()
+        return res
+    
+    def from_coco(self, lbl_file: str | Path, img_file: str | Path = '', **kwargs) -> LabelmeData:
+        res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
+        return res
 
 
 class ToCOCO(ABC):

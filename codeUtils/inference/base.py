@@ -443,7 +443,7 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            chinese: str | bool = False, suffix_load_func: dict = None, conf: float | list = 0, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = {}, conf: float | list = 0, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
@@ -580,7 +580,7 @@ class StatisticSimple(object):
                 result.append([label, x1, y1, x2, y2])
         return result
     
-    def middle2match(self, entities: list | dict, suffix: str = None, use_conf: bool = False, **kwargs) -> list:
+    def middle2match(self, entities: list | dict, suffix: str | None = None, use_conf: bool = False, **kwargs) -> list:
         """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param list entities: 各种格式的标签直接加载的对象
@@ -602,18 +602,19 @@ class StatisticSimple(object):
     def get_image_shape(self, pred_entities, gt_entities, **kwargs) -> tuple:
         if not self.is_yolo_lbl:
             img_shape = (1, 1)
-        if self.pred_suffix == ".json" and pred_entities is not None:
+        if self.pred_suffix == ".json" and pred_entities:
             img_shape = (pred_entities['imageHeight'], pred_entities['imageWidth'])
-        elif self.pred_suffix == ".xml" and pred_entities is not None:
+        elif self.pred_suffix == ".xml" and pred_entities:
             img_shape = (pred_entities["size"]["height"], pred_entities["size"]["width"])
-        elif self.gt_suffix == ".json" and gt_entities is not None:
+        elif self.gt_suffix == ".json" and gt_entities:
             img_shape = (gt_entities['imageHeight'], gt_entities['imageWidth'])
-        elif self.gt_suffix == ".xml" and gt_entities is not None:
+        elif self.gt_suffix == ".xml" and gt_entities:
             img_shape = (gt_entities["size"]["height"], gt_entities["size"]["width"])
         else:
             img_shape = (1, 1)
         return img_shape
 
+    @classmethod
     def conf_filter(cls, label_list: list, conf_thresh: dict, **kwargs) -> list:
         """根据置信度阈值过滤预测结果"""
         res_lbl = [lbl for lbl in label_list if lbl[1] >= conf_thresh[lbl[0]]]
@@ -716,7 +717,7 @@ class StatisticConfusion(StatisticSimple):
         """
         super().__init__(
             gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
-            suffix_load_func=kwargs.get('suffix_load_func', None),
+            suffix_load_func=kwargs.get('suffix_load_func', {}),
             classes=classes, chinese=chinese, conf=conf, **kwargs
         )
         assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"

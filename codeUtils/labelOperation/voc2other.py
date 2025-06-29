@@ -156,7 +156,7 @@ def voc2yolo(src_dir: str, dst_dir: str = None, classes: list = None, img_valid:
                     v2y_bar.update()
 
 
-def voc_to_labelme(src_file: str, dst_file: str = None, img_valid: bool = False):
+def voc_to_labelme(src_file: str, dst_file: str | None = None, img_valid: bool = False):
     """xml标注转labelme格式
 
     :param str src_file: xml文件路径
