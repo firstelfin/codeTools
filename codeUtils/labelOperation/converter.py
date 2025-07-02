@@ -13,7 +13,7 @@ import time
 import shutil
 import cv2 as cv
 from enum import Enum
-from typing import Literal, Callable, Optional
+from typing import Literal, Callable, Optional, Any
 from loguru import logger
 from tqdm import tqdm
 from abc import ABC, abstractmethod
@@ -78,6 +78,13 @@ class DectConverter(object):
         F[调用 save_all 方法] --> G[遍历缓存的耦合对象]
         G --> H[逐个保存为目标格式文件]
     ```
+
+    标签读取:
+
+    - 支持读取labelme格式的标注文件
+    - 支持读取yolo格式的标注文件
+    - 支持读取voc格式的标注文件
+    - 支持读取coco格式的标注文件
     
     """
 
@@ -113,7 +120,7 @@ class DectConverter(object):
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path, str | Path], LabelmeData] | None = None, 
+            read_func: Callable[[str | Path, str | Path, Any], LabelmeData] | None = None, 
             save_dir: str | Path | None = None
         ) -> None:
         """转为labelme格式的标准输出接口.
@@ -167,7 +174,7 @@ class DectConverter(object):
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path], LabelmeData] | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
             save_dir: str | Path | None = None,
         ) -> None:
         """转为yolo格式的标准输出接口.
@@ -186,9 +193,31 @@ class DectConverter(object):
         
         lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
 
+    def to_voc(
+            self, lbmd: LabelmeData | None = None, 
+            lbl_file: str | Path | None = None, 
+            img_file: str | Path | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
+            save_dir: str | Path | None = None,
+        ) -> None:
+        pass
+
+    def to_coco(
+            self, lbmd: LabelmeData | None = None, 
+            lbl_file: str | Path | None = None, 
+            img_file: str | Path | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
+            save_dir: str | Path | None = None,
+        ) -> None:
+        pass
+
+
     @classmethod
-    def from_labelme(cls, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
+    def from_labelme(cls, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> LabelmeData:
         """从labelme标注文件读取数据, 并返回LabelmeData对象.
+        已经支持:
+        1. 矩形标注, 转为points字段[2, 1, 2]
+        2. 多边形标注, 转为points字段[n, 1, 2]
 
         :param lbl_file: labelme格式的标注文件路径
         :type lbl_file: str | Path
@@ -223,7 +252,11 @@ class DectConverter(object):
         return res
 
     def from_yolo(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
-        """从yolo标注文件读取数据, 并返回LabelmeData对象.
+        """从yolo标注文件读取数据, 并返回LabelmeData对象. 
+        已经支持:
+        1. conf字段, LabelmeData记录为score字段
+        2. 多边形标注, 转为points字段[n, 1, 2]
+        3. 矩形标注, 转为points字段[2, 1, 2]
 
         :param lbl_file: yolo格式的标注文件路径
         :type lbl_file: str | Path
@@ -270,15 +303,59 @@ class DectConverter(object):
             )
         return res
     
-    def from_voc(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
+    def from_voc(self, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> LabelmeData:
+        """从voc标注文件读取数据, 并返回LabelmeData对象.
+        已经支持:
+        1. 矩形标注, 转为points字段[2, 1, 2]
+        2. 多边形标注, 转为points字段[n, 1, 2](暂未支持)
+
+        :param lbl_file: voc格式的标注文件路径
+        :type lbl_file: str | Path
+        :param img_file: 图像文件路径, lbl_file加载不到图像尺寸时, 图像就必须要能够加载到
+        :type img_file: str | Path
+        :return: 标准化的LabelmeData对象
+        :rtype: LabelmeData
+        """
         res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
         # 读取voc格式的标注文件
-        read_voc()
+        voc_dict = read_voc(label_file=lbl_file, extra_keys=kwargs.get("extra_keys", []))
+        if voc_dict is None:
+            return res
+        # 确保图像size不为0
+        if voc_dict["size"]["width"] == 0 or voc_dict["size"]["height"] == 0:
+            src_img = load_img(img_file)
+            if src_img is None:
+                raise FileExistsError(f"Failed to load image file {img_file}.")
+            img_h, img_w = src_img.shape[:2]
+            voc_dict["size"]["width"] = img_w
+            voc_dict["size"]["height"] = img_h
+        res.imageHeight = voc_dict["size"]["height"]
+        res.imageWidth = voc_dict["size"]["width"]
+
+        use_seg = kwargs.get("use_seg", False) and voc_dict.get("segmented")  # TODO: 支持Seg转换
+        # 转换为LabelmeData对象
+        if use_seg:
+            raise NotImplementedError("Seg conversion is not supported yet.")
+        else:
+            for ins_obj in voc_dict.get("object", []):
+                label_name: str = ins_obj.get("name")
+                score: float = float(ins_obj.get("conf", 1.0))
+                bbox: dict = ins_obj["bndbox"]
+                xmin, ymin, xmax, ymax = bbox["xmin"], bbox["ymin"], bbox["xmax"], bbox["ymax"]
+                x1, y1 = max(min(xmin, xmax), 0), max(min(ymin, ymax), 0)
+                x2, y2 = min(max(xmin, xmax), res.imageWidth), min(max(ymin, ymax), res.imageHeight)
+                res.shapes.append(
+                    ShapeInstance(label=label_name, points=[[x1, y1], [x2, y2]], shape_type="rectangle", flags={}, score=score)
+                )
         return res
     
-    def from_coco(self, lbl_file: str | Path, img_file: str | Path = '', **kwargs) -> LabelmeData:
-        res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
-        return res
+    def from_coco(self, lbl_data: LabelmeData, img_file: str | Path = '', **kwargs) -> LabelmeData:
+        """coco数据预处理时, 会直接将对象处理为LabelmeData对象, 所以不需要再次处理.
+        已经支持:
+        1. 矩形标注, 转为points字段[2, 1, 2]
+        2. 多边形标注, 转为points字段[n, 1, 2]
+        """
+        return lbl_data
 
 
 class ToCOCO(ABC):
@@ -569,7 +646,7 @@ class COCOToAll(ABC):
         save_labelme_label(save_label_file, labelme_dict)
 
     def __call__(self, *args, **kwargs):
-        cpu_num = max(os.cpu_count() // 2, 6)
+        cpu_num = max((os.cpu_count() or 8) // 2, 6)
         params = [([img_path, labelme_dict], kwargs) for img_path, labelme_dict in self.coco_instances.items()]
         exec_bar = FutureBar(
             max_workers=cpu_num, 
