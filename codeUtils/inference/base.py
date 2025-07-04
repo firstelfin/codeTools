@@ -804,7 +804,7 @@ class StatisticConfusion(StatisticSimple):
             for instance in instance_list:
                 label, x1, y1, x2, y2 = instance
                 labelme_dict['shapes'].append({
-                    "label": f"{label}-{add_suffix}",
+                    "label": f"{label}-{add_suffix}" if add_suffix else label,
                     "points": [[x1, y1], [x2, y2]],
                     "group_id": None,
                     "shape_type": "rectangle",
@@ -897,6 +897,12 @@ class StatisticConfusion(StatisticSimple):
 
 
 class StatisticBase(StatisticConfusion):
+    from warnings import PendingDeprecationWarning
+    warnings.warn(
+        "StatisticBase is deprecated, please use StatisticConfusion instead.",
+        PendingDeprecationWarning,
+        stacklevel=2,
+    )
     pass
 
 @StatisticRegistry
