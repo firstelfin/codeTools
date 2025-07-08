@@ -792,7 +792,11 @@ class StatisticConfusion(StatisticSimple):
         tpg_list = match_object['boxesStatus']['tpg']
         labelme_dict = {
             "version": "4.5.6",
-            "flags": {},
+            "flags": {
+                "haveTp": True if len(tpg_list) > 0 else False,
+                "haveFp": True if len(fp_list) > 0 else False,
+                "haveFn": True if len(fn_list) > 0 else False,
+            },
             "shapes": [],
             "imagePath": f"{gt_file.stem}.jpg",
             "imageData": None,
@@ -808,7 +812,7 @@ class StatisticConfusion(StatisticSimple):
                     "points": [[x1, y1], [x2, y2]],
                     "group_id": None,
                     "shape_type": "rectangle",
-                    "flags": {"predStatus": add_suffix}
+                    "flags": {"predStatus": True if add_suffix != "fn" else False}
                 })
         
         _add_instance(tpg_list)
@@ -896,14 +900,7 @@ class StatisticConfusion(StatisticSimple):
         self.matrix.save_xlsx(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.xlsx")
 
 
-class StatisticBase(StatisticConfusion):
-    from warnings import PendingDeprecationWarning
-    warnings.warn(
-        "StatisticBase is deprecated, please use StatisticConfusion instead.",
-        PendingDeprecationWarning,
-        stacklevel=2,
-    )
-    pass
+class StatisticBase(StatisticConfusion): ...
 
 @StatisticRegistry
 class StatisticMatrix(StatisticSimple):
