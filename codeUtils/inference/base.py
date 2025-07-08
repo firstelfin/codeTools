@@ -461,7 +461,7 @@ class StatisticSimple(object):
         }
         if suffix_load_func:
             self.suffix_load_func.update(suffix_load_func)
-        self.classes = self.get_classes(classes)
+        self.classes = self.get_classes(deepcopy(classes))  # 直接处理形参，会有形参修改实参的副作用
         self.background = True  # 标记是否有背景类
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         if chinese:
@@ -496,7 +496,8 @@ class StatisticSimple(object):
             classes = [class_file[i] for i in sorted(class_file.keys())]
         else:
             raise ValueError(f"不支持的类别文件类型{type(class_file)}")
-        classes.append('background')
+        if len(classes) == 0 or classes[-1] != 'background':
+            classes.append('background')
         
         return classes
 
