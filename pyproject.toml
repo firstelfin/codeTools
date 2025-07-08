@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
     "loguru>=0.7.2", "seaborn>=0.13.1", "matplotlib>=3.9.1", "msgpack>=1.1.0",
     "pillow>=8.1.0", "opencv-python>=4.3.0.38", "click", "pyyaml", "httpx", "psutil",
-    "BeautifulSoup4", "tqdm", "lxml", "openpyxl", "prettytable"
+    "BeautifulSoup4", "tqdm", "lxml", "prettytable", "xlsxwriter"
 ]
 
 #[tool.poetry.extras]
