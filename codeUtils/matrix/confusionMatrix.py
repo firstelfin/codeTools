@@ -222,10 +222,78 @@ class ConfusionMatrix:
 
         df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=self.category+["Total", "Mean"])
         
-        with pd.ExcelWriter(path) as writer:
+        for col in df_rp.columns:
+            # 尝试转换为 float 或 int，无法转换的保持原样
+            is_numeric = pd.to_numeric(df_rp[col], errors='coerce').notna()
+            df_rp[col][is_numeric] = pd.to_numeric(df_rp[col][is_numeric], errors='coerce')
+
+        
+
+        with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
+            # 设置表头和内容样式
+            start_row, start_col = (2, 2)
+            workbook = writer.book
+            # ✅ 设置默认字体大小（模拟 Excel 默认）
+            DEFAULT_FONT_SIZE = 10
+            workbook.formats[0].set_font_size(DEFAULT_FONT_SIZE)
+            # 设置表头和内容样式
+            format_header = workbook.add_format({
+                'bold': True,
+                'align': 'center',
+                'font_size': DEFAULT_FONT_SIZE + 1,  # 假设正文是 10，这里加粗字体 11
+                'top': 2,         # 上边框
+                'bottom': 1,      # 下边框
+            })
+            format_bottom = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'center',      # 居中对齐
+                'bottom': 2,      # 只在底部下方画线
+            })
+            format_content = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'center',      # 居中对齐
+            })
+            format_index = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'left'
+            })
+            format_index_bottom = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'left',
+                'bottom': 2
+            })
             df.to_excel(writer, sheet_name="Confusion Matrix")
             df_normal.to_excel(writer, sheet_name="Normalized Confusion Matrix")
-            df_rp.to_excel(writer, sheet_name="Recall-Precision")
+            # 创建一个空的sheet
+            worksheet_rp = workbook.add_worksheet("Recall-Precision")
+            # df_rp.to_excel(writer, sheet_name="Recall-Precision")
+            # worksheet_rp = writer.sheets['Recall-Precision']
+            # 写入索引（index）
+            last_row = 0
+            for row_num, data in enumerate(df_rp.index):
+                worksheet_rp.write(row_num + start_row + 1, start_col, data, format_index)
+                last_row = row_num
+            # 写入列名（columns）
+            worksheet_rp.write(start_row , start_col, None, format_header)
+            for col_num, data in enumerate(df_rp.columns):
+                worksheet_rp.write(start_row , start_col + 1 + col_num, data, format_header)
+            # 写入数据
+            for row_num, row_data in enumerate(df_rp.values):
+                for col_num, data in enumerate(row_data):
+                    worksheet_rp.write(row_num + start_row + 1, start_col + 1 + col_num, data, format_content)
+            # 设置表格底部的线
+            worksheet_rp.write(last_row + start_row + 1, start_col, df_rp.index[-1], format_index_bottom)
+            for col_num, data in enumerate(df_rp.values[last_row]):
+                worksheet_rp.write(last_row + start_row + 1, col_num + start_col + 1, data, format_bottom)
+            # 自动调整列宽
+            for idx, col in enumerate(df_rp):  # Iterate through data to auto fit
+                series = df_rp[col]
+                max_len = max((
+                    series.astype(str).map(len).max(),  # len of largest item
+                    len(str(series.name))  # len of column name/header
+                )) + 1  # adding a little extra space
+                worksheet_rp.set_column(idx + 1 + start_row, idx + 1 + start_row, max_len)  # set column width
+            
     
     def get_normalize_matrix(self):
         """获取归一化的混淆矩阵"""
