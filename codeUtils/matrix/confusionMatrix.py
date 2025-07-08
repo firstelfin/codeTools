@@ -262,6 +262,46 @@ class ConfusionMatrix:
                 'align': 'left',
                 'bottom': 2
             })
+        for col in df_rp.columns:
+            # 尝试转换为 float 或 int，无法转换的保持原样
+            is_numeric = pd.to_numeric(df_rp[col], errors='coerce').notna()
+            df_rp[col][is_numeric] = pd.to_numeric(df_rp[col][is_numeric], errors='coerce')
+
+        
+
+        with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
+            # 设置表头和内容样式
+            start_row, start_col = (2, 2)
+            workbook = writer.book
+            # ✅ 设置默认字体大小（模拟 Excel 默认）
+            DEFAULT_FONT_SIZE = 10
+            workbook.formats[0].set_font_size(DEFAULT_FONT_SIZE)
+            # 设置表头和内容样式
+            format_header = workbook.add_format({
+                'bold': True,
+                'align': 'center',
+                'font_size': DEFAULT_FONT_SIZE + 1,  # 假设正文是 10，这里加粗字体 11
+                'top': 2,         # 上边框
+                'bottom': 1,      # 下边框
+            })
+            format_bottom = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'center',      # 居中对齐
+                'bottom': 2,      # 只在底部下方画线
+            })
+            format_content = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'center',      # 居中对齐
+            })
+            format_index = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'left'
+            })
+            format_index_bottom = workbook.add_format({
+                'font_size': DEFAULT_FONT_SIZE,
+                'align': 'left',
+                'bottom': 2
+            })
             df.to_excel(writer, sheet_name="Confusion Matrix")
             df_normal.to_excel(writer, sheet_name="Normalized Confusion Matrix")
             # 创建一个空的sheet
