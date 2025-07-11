@@ -7,6 +7,7 @@ import os
 import sys
 import warnings
 import numpy as np
+from copy import deepcopy
 from pathlib import Path
 warnings.filterwarnings('ignore')
 
@@ -71,35 +72,6 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
 
     gt_status = np.any(pred2gt_matrix, axis=0)
     pred_status = np.any(pred2gt_matrix, axis=1)
-    # 获取每一列最大值的索引和值
-    update_items = dict()
-    if classes is not None:
-        for i, box in enumerate(gt_boxes):
-            cls_index = box[0] if isinstance(box[0], int) else classes.index(box[0])
-            box_cls = classes[cls_index]
-            if box_cls not in update_items:
-                update_items[box_cls] = [0] * len(classes)
-            if pred2gt_matrix.shape[0] and pred2gt_matrix[:, i].max():   # cls 和 box都匹配上的对象
-                update_items[box_cls][cls_index] += 1
-                continue
-            if iou_matrix.shape[0] and iou_status_matrix[:, i].max():    # box匹配上，匹配不上cls的对象
-                pred_index = pred_boxes[iou_matrix[:, i].argmax()][0]
-                if isinstance(pred_index, str):                          # 标签为字符串时, 需要将标签转换为索引
-                    pred_index = classes.index(pred_index)
-                update_items[box_cls][pred_index] += 1
-            else:
-                update_items[box_cls][-1] += 1      # 未匹配上的对象, 预测为background
-        # 开始统计background的数量
-        update_items['background'] = [0] * len(classes)
-        for i, box in enumerate(pred_boxes):
-            if iou_matrix.shape[1] and (pred2gt_matrix[i, :].max() or iou_status_matrix[i, :].max()):
-                continue
-            # if pred2gt_matrix[i, :].max():
-            #     continue
-            # if iou_status_matrix[i, :].max():
-            #     continue
-            cls_index = box[0] if isinstance(box[0], int) else classes.index(box[0])
-            update_items['background'][cls_index] += 1
 
     # 输出预测框和真值框的匹配情况
     match_object = {
@@ -109,8 +81,43 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             "fp": [pred_boxes[i] for i, status in enumerate(pred_status) if not status],  # pred没有命中的框
             "fn": [gt_boxes[i] for i, status in enumerate(gt_status) if not status],      # GT没有命中的框
         },
-        "updateItems": update_items,  # 按列更新
+        "updateItems": {},  # 按列更新
     }
+    if classes is None:
+        return match_object
 
+    # 获取每一列最大值的索引和值
+    _classes = deepcopy(classes)
+    if _classes[-1] != 'background':
+        _classes.append('background')
+    update_items = {class_name: [0]*len(_classes) for class_name in _classes}
+    # Note: 记录fn、tpg数据；fn也即将instance预测为background, tpg是gt中和预测完美匹配的实例
+    for i, box in enumerate(gt_boxes):
+        cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # gt类别索引
+        box_cls = _classes[cls_index]  # gt类别名称
+        # 判别是否漏报
+        if not gt_status[i]:  # 漏报场景: fn
+            update_items[box_cls][-1] += 1
+        else:  # 非漏报场景: tpg
+            update_items[box_cls][cls_index] += 1
+
+    # Note: 记录fp数据; 
+    # fp有两种情况, 1. background预测为目标实例, 2. 目前类别预测其他类别, 且IOU大于阈值; 
+    for j, box in enumerate(pred_boxes):
+        if pred_status[j]:  # 预测框命中
+            continue
+        cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # pred类别索引
+        # 判断是否和gt box通过匹配预值
+        if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
+            # 获取iou_status_matrix[j, :]为True的索引
+            gt_index = int(iou_status_matrix[j, :].argmax())
+            gt_box = gt_boxes[gt_index]
+            gt_cls_index = gt_box[0] if isinstance(gt_box[0], int) else _classes.index(gt_box[0])
+            gt_cls = _classes[gt_cls_index]
+            update_items[gt_cls][cls_index] += 1
+        else:  # 和GT关于IOU没有匹配上
+            update_items['background'][cls_index] += 1
+    
+    match_object["updateItems"] = update_items
     return match_object
             
