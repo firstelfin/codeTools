@@ -105,25 +105,25 @@ class ConfusionMatrix:
         array2picture(
             data=self.matrix_recall, category=self.category, title_name="Confusion Matrix Recall Num",
             dst_path=dst_dir / "confusionMatrix_recall.png", mode="d", cmap=self.cmap,
-            change_last_axis_label=[None, "FN"]
+            change_last_axis_label=["FN", None]
         )
         # 绘制 self.matrix_precision
         array2picture(
             data=self.matrix_precision, category=self.category, title_name="Confusion Matrix Precision Num",
             dst_path=dst_dir / "confusionMatrix_precision.png", mode="d", cmap=self.cmap,
-            change_last_axis_label=["FP", None]
+            change_last_axis_label=[None, "FP"]
         )
         # 绘制 self.normal_matrix_recall
         array2picture(
             data=self.normal_matrix_recall, category=self.category, title_name="Confusion Matrix Recall Rate",
             dst_path=dst_dir / "confusionMatrix_recall_rate.png", mode=".2f", cmap=self.cmap,
-            change_last_axis_label=[None, "FN"]
+            change_last_axis_label=["FN", None]
         )
         # 绘制 self.normal_matrix_precision
         array2picture(
             data=self.normal_matrix_precision, category=self.category, title_name="Confusion Matrix Precision Rate",
             dst_path=dst_dir / "confusionMatrix_precision_rate.png", mode=".2f", cmap=self.cmap,
-            change_last_axis_label=["FP", None]
+            change_last_axis_label=[None, "FP"]
         )
 
     @classmethod
