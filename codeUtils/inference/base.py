@@ -20,7 +20,7 @@ from loguru import logger
 from prettytable import PrettyTable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from codeUtils.tools.fontConfig import colorstr
+from codeUtils.tools.fontConfig import colorstr, set_plt
 from codeUtils.tools.torchTools import torch_empty_cache
 from codeUtils.tools.futureConf import FutureBar
 from codeUtils.tools.tqdmConf import cpu_num, BATCH_KEY, START_KEY, END_KEY, TPP, FPP, TPG, TNG, GTN, PRN
@@ -443,7 +443,8 @@ class StatisticSimple(object):
     def __init__(
             self, pred_suffix: Literal[".txt", ".json", ".xml"] = ".json",
             gt_suffix: Literal[".txt", ".json", ".xml"] = ".json", classes: str = None,
-            chinese: str | bool = False, suffix_load_func: dict = {}, conf: float | list = 0, **kwargs
+            chinese: str | bool = False, suffix_load_func: dict = {}, conf: float | list = 0, 
+            ios_thresh: float = 0.5, iou_thresh: float = 0.5, **kwargs
         ):
         """
         :param Literal[.txt, .json, .xm] pred_suffix: 预测文件的后缀类型, defaults to ".json"
@@ -452,6 +453,8 @@ class StatisticSimple(object):
         :param str|list|dict classes: 类别文件路径(支持list, dict), defaults to None
         :param float | list conf: 置信度阈值, defaults to 0
         """
+        self.ios_thresh = ios_thresh
+        self.iou_thresh = iou_thresh
         self.pred_suffix = pred_suffix
         self.gt_suffix = gt_suffix
         self.suffix_load_func = {
@@ -465,7 +468,7 @@ class StatisticSimple(object):
         self.background = True  # 标记是否有背景类
         self.is_yolo_lbl = gt_suffix == ".txt" or pred_suffix == ".txt"
         if chinese:
-            ConfusionMatrix.set_plt(font_path=chinese if isinstance(chinese, str) else None)
+            set_plt(font_path=chinese if isinstance(chinese, str) else None)
         self.conf = self.set_conf(conf)
     
     def set_conf(self, conf: float | list):
@@ -689,7 +692,8 @@ class StatisticConfusion(StatisticSimple):
             classes: str = 'classes.txt', chinese: bool = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
-            use_fpfn: bool = False, conf: float | list = 0,  **kwargs
+            use_fpfn: bool = False, conf: float | list = 0,
+            ios_thresh: float = 0.5, iou_thresh: float = 0.5, **kwargs
         ):
         """初始化统计类
 
@@ -719,7 +723,8 @@ class StatisticConfusion(StatisticSimple):
         super().__init__(
             gt_suffix=gt_suffix, pred_suffix=pred_suffix, 
             suffix_load_func=kwargs.get('suffix_load_func', {}),
-            classes=classes, chinese=chinese, conf=conf, **kwargs
+            classes=classes, chinese=chinese, conf=conf, 
+            ios_thresh=ios_thresh, iou_thresh=iou_thresh, **kwargs
         )
         assert gt_suffix in self.suffix_load_func, f"不支持的标签文件后缀名{gt_suffix}"
         assert pred_suffix in self.suffix_load_func, f"不支持的预测文件后缀名{pred_suffix}"
@@ -760,17 +765,22 @@ class StatisticConfusion(StatisticSimple):
                 if file.suffix != self.pred_suffix:
                     continue
                 lbl_file = Path(self.src_gt[i]) / (file.stem + self.gt_suffix)
-                yield file, lbl_file
+                yield (file, lbl_file), dict(ios_thresh=self.ios_thresh, iou_thresh=self.iou_thresh)
 
-    def update(self, update_dict: dict):
+    def update(self, update_dict: dict, recall: bool = True):
         """更新统计矩阵
 
         :param update_dict: 更新字典, 格式为{类别: 预测向量}, 如: {"background": [1,0,0,1,0,1]}
         :type update_dict: dict
         """
-        for key, value in update_dict.items():
-            key_index = self.classes.index(key)
-            self.matrix.matrix[:, key_index] += value
+        if recall:
+            for key, value in update_dict.items():
+                key_index = self.classes.index(key)
+                self.matrix.matrix_recall[:, key_index] += value     # 更新matrix_recall某一列
+        else:
+            for key, value in update_dict.items():
+                key_index = self.classes.index(key)
+                self.matrix.matrix_precision[key_index, :] += value  # 更新matrix_precision某一行
 
     def save_fpfn_pipeline(self, match_object: dict, gt_file: str, img_shape: tuple):
         """保存FP, FN实例为子数据集, 标签使用labelme格式
@@ -844,7 +854,8 @@ class StatisticConfusion(StatisticSimple):
         )
         
         # 更新统计实验数据
-        self.update(match_object['updateItems'])
+        self.update(match_object['updateItemsRecall'], recall=True)
+        self.update(match_object['updateItemsPrecision'], recall=False)
 
         # 保存GT和误报实例为数据子集, 标签使用labelme格式
         if self.use_fpfn:
@@ -852,52 +863,17 @@ class StatisticConfusion(StatisticSimple):
 
         return True
 
-    def __call__(self, iou_thresh: float = 0.5, ios_thresh: float = 0.5, rendering: bool = False, *args, **kwargs):
-        """统计接口
-
-        :param float iou_thresh: 交并比阈值, defaults to 0.5
-        :param float ios_thresh: 交自比阈值, defaults to 0.5
-        :param bool rendering: 是否渲染, defaults to False
-        """
-        # TODO: 增加字体渲染size、token渲染size信息判别
+    def __call__(self, *args, **kwargs):
+        """切片统计接口"""
         
         entities_generator = self.load_datasets()
         total_num = next(entities_generator)
-        bar_desc = colorstr("bright_blue", "bold", "Statistic")
-        instance_batch_size = getattr(self, 'batch_size', 4)
-        batch_size = kwargs.get('batch_size', instance_batch_size)
-        epoch_num = math.ceil(total_num / batch_size)
 
-        with ThreadPoolExecutor(max_workers=cpu_num) as executor:
-            with tqdm(total=total_num, desc=bar_desc, unit='img', leave=True, position=0, dynamic_ncols=True, colour="#CD8500") as epoch_bar:
-                for epoch in range(epoch_num):
-                    start_idx = epoch * batch_size
-                    end_idx = min(total_num, (epoch + 1) * batch_size)
-                    
-                    inner_tasks = []
-                    epoch_size = end_idx - start_idx
-                    for _ in range(start_idx, end_idx):
-                        pred_file, lbl_file = next(entities_generator)
-                        inner_tasks.append(
-                            executor.submit(
-                                self.match, pred_file, lbl_file, 
-                                ios_thresh=ios_thresh, iou_thresh=iou_thresh, rendering=rendering
-                            )
-                        )
-                    
-                    # 更新进度条
-                    for ti, task in enumerate(as_completed(inner_tasks), start=1):
-                        task.result()
-                        epoch_bar.set_postfix({
-                            BATCH_KEY: f"{ti}/{epoch_size}", 
-                            START_KEY: start_idx, 
-                            END_KEY: end_idx
-                        })
-                        epoch_bar.update()
+        future_bar = FutureBar(total=total_num, desc="StatisticConfusion")
+        future_bar(self.match, entities_generator, total=total_num)
 
         # 保存统计结果
-        self.matrix.save_figure(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.png")
-        self.matrix.save_figure(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix_normalized.png", mode='normalize')
+        self.matrix.save_figure(dst_dir=self.dst_dir)
         self.matrix.save_xlsx(self.dst_dir / f"{self.dst_dir.name}_confusion_matrix.xlsx")
 
 

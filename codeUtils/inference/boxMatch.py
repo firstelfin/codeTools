@@ -81,7 +81,8 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             "fp": [pred_boxes[i] for i, status in enumerate(pred_status) if not status],  # pred没有命中的框
             "fn": [gt_boxes[i] for i, status in enumerate(gt_status) if not status],      # GT没有命中的框
         },
-        "updateItems": {},  # 按列更新
+        "updateItemsRecall": {},  # 记录召回, 按列更新
+        "updateItemsPrecision": {},  # 记录精度, 按行更新
     }
     if classes is None:
         return match_object
@@ -90,34 +91,39 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
     _classes = deepcopy(classes)
     if _classes[-1] != 'background':
         _classes.append('background')
-    update_items = {class_name: [0]*len(_classes) for class_name in _classes}
+    update_items_recall = {class_name: [0]*len(_classes) for class_name in _classes}
+    update_items_precision = {class_name: [0]*len(_classes) for class_name in _classes}
     # Note: 记录fn、tpg数据；fn也即将instance预测为background, tpg是gt中和预测完美匹配的实例
     for i, box in enumerate(gt_boxes):
         cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # gt类别索引
         box_cls = _classes[cls_index]  # gt类别名称
         # 判别是否漏报
         if not gt_status[i]:  # 漏报场景: fn
-            update_items[box_cls][-1] += 1
+            update_items_recall[box_cls][-1] += 1
         else:  # 非漏报场景: tpg
-            update_items[box_cls][cls_index] += 1
+            update_items_recall[box_cls][cls_index] += 1
 
     # Note: 记录fp数据; 
     # fp有两种情况, 1. background预测为目标实例, 2. 目前类别预测其他类别, 且IOU大于阈值; 
     for j, box in enumerate(pred_boxes):
-        if pred_status[j]:  # 预测框命中
-            continue
         cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # pred类别索引
+        box_cls = _classes[cls_index]  # pred类别名称
+        if pred_status[j]:  # 预测框命中
+            update_items_precision[box_cls][cls_index] += 1
+            continue
+        
         # 判断是否和gt box通过匹配预值
         if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
             # 获取iou_status_matrix[j, :]为True的索引
             gt_index = int(iou_status_matrix[j, :].argmax())
             gt_box = gt_boxes[gt_index]
             gt_cls_index = gt_box[0] if isinstance(gt_box[0], int) else _classes.index(gt_box[0])
-            gt_cls = _classes[gt_cls_index]
-            update_items[gt_cls][cls_index] += 1
+            # gt_cls = _classes[gt_cls_index]
+            update_items_precision[box_cls][gt_cls_index] += 1
         else:  # 和GT关于IOU没有匹配上
-            update_items['background'][cls_index] += 1
+            update_items_precision[box_cls][-1] += 1
     
-    match_object["updateItems"] = update_items
+    match_object["updateItemsRecall"] = update_items_recall
+    match_object["updateItemsPrecision"] = update_items_precision
     return match_object
             
