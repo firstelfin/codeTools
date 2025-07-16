@@ -12,6 +12,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import math
+from copy import deepcopy
 from pathlib import Path
 from .fontConfig import set_plt
 
@@ -21,7 +22,8 @@ def array2picture(
         dst_path: str = '', mode=None, chinese: bool | str = False,
         x_label: str = "GT", y_label: str = "PREDICT",
         char_width_px: int = 8, char_height_px: int = 12,
-        cell_padding: int = 12, label_padding: int = 18, cmap: str = "viridis", **kwargs
+        cell_padding: int = 12, label_padding: int = 18, 
+        cmap: str = "viridis", change_last_axis_label= [None, None], **kwargs
     ):
     """将np.ndarray数据转换为图片并保存
 
@@ -38,6 +40,7 @@ def array2picture(
     :param int cell_padding: 单元格间距（像素）
     :param int label_padding: 标签间距（像素）
     :param str cmap: 颜色映射, 默认为"viridis"
+    :param list change_last_axis_label: 是否修改最后一个标签, 默认为[None, None], 第一个元素为x轴标签, 第二个元素为y轴标签
     """
 
     if chinese:
@@ -56,9 +59,9 @@ def array2picture(
     dst_file_path = f"{title_name}.png" if not dst_path else Path(dst_path).with_suffix(".png")
 
     # 1. matrix数据计算最长长度
-    fmt = "d" if mode is None else ".2f"
+    fmt = "d" if mode is None else mode
     str_data = np.vectorize(lambda x: format(x, fmt))(data)
-    max_str_len = max(len(s) for s in str_data.ravel())
+    max_str_len = max(max(len(s) for s in str_data.ravel()), 7)
 
     # 2. 计算单元格尺寸（像素）
     cell_width_px = max_str_len * char_width_px + cell_padding * 2
@@ -66,8 +69,12 @@ def array2picture(
 
     # 3. 计算标签空间
     # 横纵坐标标签
-    x_labels = category[:data.shape[0]]
-    y_labels = category[:data.shape[1]]
+    x_labels = deepcopy(category[:data.shape[0]])
+    y_labels = deepcopy(category[:data.shape[1]])
+    if change_last_axis_label[0] is not None:
+        x_labels[-1] = change_last_axis_label[0]
+    if change_last_axis_label[1] is not None:
+        y_labels[-1] = change_last_axis_label[1]
     # 横纵坐标标签最大长度
     x_label_length = max(len(s) for s in x_labels)                         
     y_label_length = max(len(s) for s in y_labels)

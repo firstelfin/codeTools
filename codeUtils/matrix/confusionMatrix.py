@@ -72,8 +72,8 @@ class ConfusionMatrix:
         self.num_classes = num_classes
         self.matrix_recall = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.matrix_precision = np.zeros((num_classes, num_classes), dtype=np.int32)
-        self.normal_matrix_recall = np.zeros_like(self.matrix_recall)
-        self.normal_matrix_precision = np.zeros_like(self.matrix_precision)
+        self.normal_matrix_recall = None
+        self.normal_matrix_precision = None
         self.category = category
         self.cmap = cmap
         if chinese:
@@ -104,22 +104,26 @@ class ConfusionMatrix:
         # 绘制 self.matrix_recall
         array2picture(
             data=self.matrix_recall, category=self.category, title_name="Confusion Matrix Recall Num",
-            dst_path=dst_dir / "confusionMatrix_recall.png", mode="d", cmap=self.cmap
+            dst_path=dst_dir / "confusionMatrix_recall.png", mode="d", cmap=self.cmap,
+            change_last_axis_label=[None, "FN"]
         )
         # 绘制 self.matrix_precision
         array2picture(
             data=self.matrix_precision, category=self.category, title_name="Confusion Matrix Precision Num",
-            dst_path=dst_dir / "confusionMatrix_precision.png", mode="d", cmap=self.cmap
+            dst_path=dst_dir / "confusionMatrix_precision.png", mode="d", cmap=self.cmap,
+            change_last_axis_label=["FP", None]
         )
         # 绘制 self.normal_matrix_recall
         array2picture(
             data=self.normal_matrix_recall, category=self.category, title_name="Confusion Matrix Recall Rate",
-            dst_path=dst_dir / "confusionMatrix_recall_rate.png", mode=".2f", cmap=self.cmap
+            dst_path=dst_dir / "confusionMatrix_recall_rate.png", mode=".2f", cmap=self.cmap,
+            change_last_axis_label=[None, "FN"]
         )
         # 绘制 self.normal_matrix_precision
         array2picture(
             data=self.normal_matrix_precision, category=self.category, title_name="Confusion Matrix Precision Rate",
-            dst_path=dst_dir / "confusionMatrix_precision_rate.png", mode=".2f", cmap=self.cmap
+            dst_path=dst_dir / "confusionMatrix_precision_rate.png", mode=".2f", cmap=self.cmap,
+            change_last_axis_label=["FP", None]
         )
 
     @classmethod
@@ -176,7 +180,7 @@ class ConfusionMatrix:
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
-            index_array = np.bitwise_or(recall[:-1] != 0, precision[:-1] != 0)
+            index_array = np.bitwise_or(gt_num[:-1] != 0, pred_num[:-1] != 0)
         else:
             index_array = np.ones_like(recall[:-1], dtype=bool)
         
@@ -265,9 +269,9 @@ class ConfusionMatrix:
         if self.normal_matrix_recall is None:
             self.normal_matrix_recall = np.zeros_like(self.matrix_recall)
             gt_num = self.matrix_recall.sum(axis=0, keepdims=True).clip(min=1)
-            self.normal_matrix_recall = self.matrix_recall / gt_num
+            self.normal_matrix_recall = 100 *self.matrix_recall / gt_num
 
         if self.normal_matrix_precision is None:
             self.normal_matrix_precision = np.zeros_like(self.matrix_precision)
             pred_num = self.matrix_precision.sum(axis=1, keepdims=True).clip(min=1)
-            self.normal_matrix_precision = self.matrix_precision / pred_num
+            self.normal_matrix_precision = 100 * self.matrix_precision / pred_num
