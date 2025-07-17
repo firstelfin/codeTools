@@ -83,7 +83,7 @@ def array2picture(
     y_label_space = y_label_length * char_width_px + label_padding
 
     # 4. 计算标题空间
-    title_fontsize = math.ceil(grid_font_size * 1.2)
+    title_fontsize = math.ceil(grid_font_size * 1.4)
     title_height_px = title_fontsize * 1.5
     x_axis_label_fontsize = math.ceil(grid_font_size * 1.1)
     y_axis_label_fontsize = math.ceil(grid_font_size * 1.1)

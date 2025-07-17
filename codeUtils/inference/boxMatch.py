@@ -98,10 +98,16 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
         cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # gt类别索引
         box_cls = _classes[cls_index]  # gt类别名称
         # 判别是否漏报
-        if not gt_status[i]:  # 漏报场景: fn
-            update_items_recall[box_cls][-1] += 1
-        else:  # 非漏报场景: tpg
+        if gt_status[i]:  # 非漏报场景: tpg
             update_items_recall[box_cls][cls_index] += 1
+        elif iou_matrix.shape[0] and iou_status_matrix[:, i].max():  # 误报场景: fp for gt
+            # 选择最佳iou匹配
+            pred_index = int(iou_status_matrix[:, i].argmax())
+            pred_box = pred_boxes[pred_index]
+            pred_cls_index = pred_box[0] if isinstance(pred_box[0], int) else _classes.index(pred_box[0])
+            update_items_recall[box_cls][pred_cls_index] += 1
+        else:  # 漏报场景: fn
+            update_items_recall[box_cls][-1] += 1
 
     # Note: 记录fp数据; 
     # fp有两种情况, 1. background预测为目标实例, 2. 目前类别预测其他类别, 且IOU大于阈值; 
@@ -113,7 +119,7 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             continue
         
         # 判断是否和gt box通过匹配预值
-        if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
+        if iou_matrix.shape[i] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
             # 获取iou_status_matrix[j, :]为True的索引
             gt_index = int(iou_status_matrix[j, :].argmax())
             gt_box = gt_boxes[gt_index]
