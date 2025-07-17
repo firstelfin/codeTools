@@ -119,7 +119,7 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
             continue
         
         # 判断是否和gt box通过匹配预值
-        if iou_matrix.shape[i] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
+        if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
             # 获取iou_status_matrix[j, :]为True的索引
             gt_index = int(iou_status_matrix[j, :].argmax())
             gt_box = gt_boxes[gt_index]

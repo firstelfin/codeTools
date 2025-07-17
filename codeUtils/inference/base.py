@@ -693,7 +693,8 @@ class StatisticConfusion(StatisticSimple):
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
             use_fpfn: bool = False, conf: float | list = 0,
-            ios_thresh: float = 0.5, iou_thresh: float = 0.5, **kwargs
+            ios_thresh: float = 0.5, iou_thresh: float = 0.5, 
+            filter_category: list = [], **kwargs
         ):
         """初始化统计类
 
@@ -736,7 +737,7 @@ class StatisticConfusion(StatisticSimple):
         self.background = False
         
         # 初始化统计的matrix
-        self.matrix = ConfusionMatrix(len(self.classes), self.classes)
+        self.matrix = ConfusionMatrix(len(self.classes), self.classes, filter_category=filter_category)
         self.use_fpfn = use_fpfn
         self.call_backs = [self.conf_filter, self.delete_conf]
     

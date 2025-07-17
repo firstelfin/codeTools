@@ -38,6 +38,7 @@ class ConfusionMatrix:
         cmap (str, optional): 颜色映射. Defaults to "YlGnBu".
         chinese (bool, optional): 是否使用简体中文. Defaults to False.
         exclude_zero (bool, optional): 是否排除0值. Defaults to True.
+        filter_category (list[str], optional): 过滤掉的类别名称列表. Defaults to [].
 
 
     Attributes:
@@ -68,7 +69,8 @@ class ConfusionMatrix:
 
     def __init__(
             self, num_classes, category: list[str] = None, cmap: str = "YlGnBu", 
-            chinese: bool | str = False, exclude_zero=True):
+            chinese: bool | str = False, exclude_zero=True, filter_category=[],
+        ):
         self.num_classes = num_classes
         self.matrix_recall = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.matrix_precision = np.zeros((num_classes, num_classes), dtype=np.int32)
@@ -79,6 +81,7 @@ class ConfusionMatrix:
         if chinese:
             self.set_plt(font_path=chinese if isinstance(chinese, str) else None)
         self.exclude_zero = exclude_zero
+        self.filter_category = np.array([False if filter_c in filter_category else True for filter_c in category])
 
     @classmethod
     def set_plt(cls, font_path = None):
@@ -166,16 +169,25 @@ class ConfusionMatrix:
 
         gt_num = self.matrix_recall.sum(axis=0)
         pred_num = self.matrix_precision.sum(axis=1)
+        gt_num[-1] = self.matrix_recall[self.filter_category][-1, :].sum()  # 计算漏报数量
+        pred_num[-1] = self.matrix_precision[self.filter_category][:, -1].sum()  # 计算误报数量
+        gt_num = gt_num[self.filter_category]
+        pred_num = pred_num[self.filter_category]
+
         # 对角线元素
-        recall = self.matrix_recall.diagonal() / (gt_num + eps)
-        precision = self.matrix_precision.diagonal() / (pred_num + eps)
+        recall_num = self.matrix_recall.diagonal()[self.filter_category]
+        precision_num = self.matrix_precision.diagonal()[self.filter_category]
+        recall = recall_num / (gt_num + eps)
+        precision = precision_num / (pred_num + eps)
+
+        # 根据filter过滤无关类别(类别变少了)
         rp = np.stack([gt_num, recall, pred_num, precision], axis=1)
+
         # 整体召回精度计算需要排除backgroud, 默认索引为-1
         gt_total_num = gt_num[:-1].sum()
         pred_total_num = pred_num[:-1].sum()
-        
-        total_recall = (np.sum(recall[:-1]) + eps) / (gt_total_num + eps)
-        total_precision = (np.sum(precision[:-1]) + eps) / (pred_total_num + eps)
+        total_recall = (np.sum(recall_num[:-1]) + eps) / (gt_total_num + eps)
+        total_precision = (np.sum(precision_num[:-1]) + eps) / (pred_total_num + eps)
         rp = np.vstack([rp, [gt_total_num, total_recall, pred_total_num, total_precision]])
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
@@ -187,8 +199,9 @@ class ConfusionMatrix:
         mr = np.mean(recall[:-1][index_array])
         mp = np.mean(precision[:-1][index_array])
         rp = np.vstack([rp, ["-", mr, "-", mp]])
+        _rp_index = [self.category[i] for i in range(len(self.category)) if self.filter_category[i]] + ["Total", "Mean"]
 
-        df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=self.category+["Total", "Mean"])
+        df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=_rp_index)
         
         for col in df_rp.columns:
             # 尝试转换为 float 或 int，无法转换的保持原样
