@@ -82,7 +82,7 @@ class FutureBar(object):
         total = len(list(deepcopy(params))) if "total" not in kwargs else kwargs["total"]
         self.bar_kwargs.update({"total": total})
         self.bar = self.init_bar()
-        with self.get_concurrent_executor() as executor:
+        with self.get_concurrent_executor() as executor:  # TODO: 多进程执行是有问题的, 循环直接退出没有等待执行
             for param_args, param_kwargs in params:
                 future = executor.submit(exec_func, *param_args, **param_kwargs)
                 callback = partial(self.bar_callback, bar=self.bar, param_args=param_args, param_kwargs=param_kwargs)
