@@ -8,8 +8,10 @@ import os
 import sys
 import math
 import warnings
+import threading
 import cv2 as cv
 import numpy as np
+from pprint import pprint
 from copy import deepcopy
 from typing import Literal
 from abc import ABC, abstractmethod
@@ -29,8 +31,7 @@ from codeUtils.labelOperation.readLabel import read_voc, read_yolo, read_txt, pa
 from codeUtils.labelOperation.saveLabel import save_labelme_label
 from codeUtils.matrix.confusionMatrix import ConfusionMatrix
 from codeUtils.matrix.distMatrix import DetMetrics
-from codeUtils.matchFactory.bboxMatch import abs_box, iou_np_boxes
-from codeUtils.inference.boxMatch import yolo_match
+from codeUtils.matchFactory.bboxMatch import abs_box, iou_np_boxes, box_valid, iou_box, ios_box, xywh2xyxy
 from codeUtils.decorator.registry import Registry
 
 
@@ -74,6 +75,134 @@ def path_list_valid(path_dir):
     datasets = [Path(dataset) for dataset in datasets]
     return datasets
 
+
+def identity(x):
+    return x
+
+
+def obj_matcher(
+        pred_boxes: list[dict], gt_boxes: list[dict], iou_thresh=0.5, ios_thresh=0.5, 
+        use_ios=False, mode="xyxy", classes: list=None
+    ):
+    """yolo格式的预测框和真值框的匹配, 返回匹配结果
+
+    ### Keyword
+        - pred_boxes、gt_boxes: 若每个元素为 [类别, x, y, w, h] , 必须使用mode="xywh"
+
+    :param pred_boxes: 预测框列表
+    :type pred_boxes: list[dict]
+    :param gt_boxes: gt框列表
+    :type gt_boxes: list[dict]
+    :param iou_thresh: IOU阈值, defaults to 0.5
+    :type iou_thresh: float, optional
+    :param ios_thresh: IOS阈值, defaults to 0.5
+    :type ios_thresh: float, optional
+    :param use_ios: 是否使用IOS匹配, defaults to False
+    :type use_ios: bool, optional
+    :param mode: 预测框和真值框的格式, "xyxy"表示(x1,y1,x2,y2), defaults to "xyxy"
+    :type mode: str, optional
+    :return: tpg, tpp, fp, fn
+    :rtype: dict
+    """
+
+    # 格式转换
+    trans_func = identity if mode.lower() == "xyxy" else xywh2xyxy
+    box1_list = [trans_func(ins_obj["bbox"]) for ins_obj in pred_boxes]
+    box2_list = [trans_func(ins_obj["bbox"]) for ins_obj in gt_boxes]
+    pred_labels = np.array([ins_obj["label"] for ins_obj in pred_boxes])
+    gt_labels = np.array([ins_obj["label"] for ins_obj in gt_boxes])
+    # 基于GT记录difficult信息
+    gt_difficult = np.array([ins_obj.get("difficult") for ins_obj in gt_boxes], dtype=bool)
+
+    # 选择使用的匹配函数和阈值
+    if use_ios:
+        iou_func = ios_box
+        thresh = ios_thresh
+    else:
+        iou_func = iou_box
+        thresh = iou_thresh
+    
+    # 遍历预测框和真值框，计算IOU，并更新匹配状态
+
+    iou_matrix = np.zeros((len(pred_boxes), len(gt_boxes)), dtype=np.float32)
+    cls_matrix = pred_labels[:, None] == gt_labels[None, :]
+    
+    # 需要兼容IOS、IOU的计算, 不能使用numpy的广播机制
+    for i, p_box in enumerate(box1_list):
+        for j, g_box in enumerate(box2_list):
+            iou = iou_func(g_box, p_box)
+            iou_matrix[i, j] = iou
+    iou_status_matrix = iou_matrix > thresh
+
+    # 计算pred2gt_matrix
+    pred2gt_matrix = iou_status_matrix * cls_matrix
+
+    gt_status = np.any(pred2gt_matrix, axis=0)
+    pred_status = np.any(pred2gt_matrix, axis=1)
+
+    # 输出预测框和真值框的匹配情况
+    match_object = {
+        "boxesStatus": {
+            "tpg": [gt_boxes[i] for i, status in enumerate(gt_status) if status],         # GT命中的框
+            "tpp": [pred_boxes[i] for i, status in enumerate(pred_status) if status],     # pred命中的框
+            "fp": [pred_boxes[i] for i, status in enumerate(pred_status) if not status],  # pred没有命中的框
+            "fn": [gt_boxes[i] for i, status in enumerate(gt_status) if not (status or gt_difficult[i])],      # GT没有命中的框
+            "fnDiff": [gt_boxes[i] for i, status in enumerate(gt_status) if not status and gt_difficult[i]],
+            "tpDiff": [gt_boxes[i] for i, status in enumerate(gt_status) if status and gt_difficult[i]],
+        },
+        "updateItemsRecall": {},  # 记录召回, 按列更新
+        "updateItemsPrecision": {},  # 记录精度, 按行更新
+    }
+    if classes is None:
+        return match_object
+
+    # 获取每一列最大值的索引和值
+    _classes = deepcopy(classes)
+    if _classes[-1] != 'background':
+        _classes.append('background')
+    update_items_recall = {class_name: [0]*len(_classes) for class_name in _classes}
+    update_items_precision = {class_name: [0]*len(_classes) for class_name in _classes}
+    # Note: 记录fn、tpg数据；fn也即将instance预测为background, tpg是gt中和预测完美匹配的实例
+    for i, box in enumerate(gt_boxes):
+        cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # gt类别索引
+        box_cls = _classes[cls_index]  # gt类别名称
+        # 判别是否漏报
+        if gt_status[i]:  # 非漏报场景: tpg
+            update_items_recall[box_cls][cls_index] += 1
+        elif iou_matrix.shape[0] and iou_status_matrix[:, i].max():  # 误报场景: fp for gt
+            # 选择最佳iou匹配
+            pred_index = int(iou_status_matrix[:, i].argmax())
+            pred_box = pred_boxes[pred_index]
+            pred_cls_index = pred_box[0] if isinstance(pred_box[0], int) else _classes.index(pred_box[0])
+            update_items_recall[box_cls][pred_cls_index] += 1
+        else:  # 漏报场景: fn
+            if gt_difficult[i]:  # 如果是困难目标, 则不计算为漏报
+                continue
+            update_items_recall[box_cls][-1] += 1
+
+    # Note: 记录fp数据; 
+    # fp有两种情况, 1. background预测为目标实例, 2. 目前类别预测其他类别, 且IOU大于阈值; 
+    for j, box in enumerate(pred_boxes):
+        cls_index = box[0] if isinstance(box[0], int) else _classes.index(box[0])  # pred类别索引
+        box_cls = _classes[cls_index]  # pred类别名称
+        if pred_status[j]:  # 预测框命中
+            update_items_precision[box_cls][cls_index] += 1
+            continue
+        
+        # 判断是否和gt box通过匹配预值
+        if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
+            # 获取iou_status_matrix[j, :]为True的索引
+            gt_index = int(iou_status_matrix[j, :].argmax())
+            gt_box = gt_boxes[gt_index]
+            gt_cls_index = gt_box[0] if isinstance(gt_box[0], int) else _classes.index(gt_box[0])
+            # gt_cls = _classes[gt_cls_index]
+            update_items_precision[box_cls][gt_cls_index] += 1
+        else:  # 和GT关于IOU没有匹配上
+            update_items_precision[box_cls][-1] += 1
+    
+    match_object["updateItemsRecall"] = update_items_recall
+    match_object["updateItemsPrecision"] = update_items_precision
+    return match_object
 
 @InferRegistry
 class DetectBase(object):
@@ -517,89 +646,132 @@ class StatisticSimple(object):
         return lbl_data
 
     @classmethod
-    def labelme2match(cls, pred_entities: dict, use_conf: bool = False, **kwargs) -> list:
+    def labelme2match(cls, pred_entities: dict, **kwargs) -> list[dict]:
         """将labelme格式的对象转换为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param pred_entities: labelme格式的预测结果对象
         :type pred_entities: dict
-        :param use_conf: 是否使用置信度, defaults to False
-        :type use_conf: bool, optional
+        :return list: 元素是labelme格式的预测对象, 形如: 
+            shape={'label': 'car', 'bbox': None, 'polygon': [], 'flags': {'difficult': False}}
         """
         pred_boxes = []
         for shape in pred_entities['shapes']:
-            box_cls = shape['label']  # yolo模型注入的类别编号
-            x1, y1, x2, y2 = shape['points'][0][0], shape['points'][0][1], shape['points'][1][0], shape['points'][1][1]
-            box = [x1, y1, x2, y2]
-            if use_conf:
-                conf = min(shape.get('conf', 1.0), shape.get("score", 1.0))
-                pred_boxes.append([box_cls, conf,  *box])
-            else:
-                pred_boxes.append([box_cls, *box])
+            box_cls = shape['label']
+            x_list = [int(p[0]) for p in shape['points']]
+            y_list = [int(p[1]) for p in shape['points']]
+            x1, y1 = min(x_list), min(y_list)
+            x2, y2 = max(x_list), max(y_list)
+            bbox = [x1, y1, x2, y2]
+            if not box_valid(bbox):
+                logger.warning(f"预测框{bbox}无效, 跳过")
+                if kwargs.get("verbose"):
+                    print("shape数据展示为:")
+                    pprint(shape)
+                continue
+            
+            polygon = [[int(p[0]), int(p[1])] for p in shape['points']] if len(shape["points"]) > 4 else []
+            conf = min(shape.get('conf', 1.0), shape.get("score", 1.0))
+            difficult = bool(shape.get('difficult', False)) or bool(shape["flags"].get('difficult', False))
+            pred_boxes.append(dict(
+                label=box_cls, conf=conf, bbox=bbox, polygon=polygon,
+                flags={"difficult": difficult}, shape_type=shape['shape_type'],
+            ))
         
         return pred_boxes
     
-    def yolo2match(self, gt_entities: list, use_conf: bool = False, **kwargs) -> list:
+    def yolo2match(self, gt_entities: list, **kwargs) -> list[dict]:
         """将标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
+        Note: 带conf的实例格式是: [class_id, x1, y1, x2, y2, conf]
 
         :param gt_entities: 标注文件内容
         :type gt_entities: list
-        :param use_conf: 是否使用置信度, defaults to False
-        :type use_conf: bool, optional
-
-        Note: 带conf的实例格式是: [class_id, x1, y1, x2, y2, conf]
+        :return list: 元素是labelme格式的标注对象, 形如: 
+            shape={'label': 'car', 'bbox': None, 'polygon': [], 'flags': {'difficult': False}}
         """
-        imgh, imgw = kwargs.get('img_shape', (1, 1))
+
+        img_h, img_w = kwargs.get('img_shape', (1, 1))
         gt_boxes = []
         for entity in gt_entities:
-            x, y, w, h = entity[1:5]
-            x1 = max(0, (x - w / 2) * imgw)
-            y1 = max(0, (y - h / 2) * imgh)
-            x2 = min(imgw, (x + w / 2) * imgw)
-            y2 = min(imgh, (y + h / 2) * imgh)
+            
             label = self.classes[entity[0]]
-            if use_conf:
-                conf = entity[5] if len(entity) == 6 else 1.0
-                gt_boxes.append([label, conf, x1, y1, x2, y2])
+            # 判断entity[1:]元素是否能被2整除, 若能则说明是带有conf的实例, 否则是不带conf的实例
+            have_conf = True if len(entity[1:]) % 2 == 1 else False
+            conf = entity[-1] if have_conf else 1.0
+            end_index = len(entity) - 1 if have_conf else len(entity)
+            bbox = []
+            polygon = []
+            if len(entity[1:end_index]) > 4:
+                polygon = [
+                    (
+                        min(max(0, entity[2*i] * img_w), img_w), min(max(0, entity[2*i+1] * img_h), img_h)
+                    ) for i in range(len(entity[1:end_index]) // 2)
+                ]
+                shape_type = "polygon"
+            elif len(entity[1:end_index]) == 4:
+                x, y, w, h = entity[1:5]
+                x1, y1 = max(0, (x - w / 2) * img_w), max(0, (y - h / 2) * img_h)
+                x2, y2 = min(img_w, (x + w / 2) * img_w), min(img_h, (y + h / 2) * img_h)
+                bbox = [x1, y1, x2, y2]
+                shape_type = "rectangle"
             else:
-                gt_boxes.append([label, x1, y1, x2, y2])
+                logger.warning(f"标注框{entity[1:end_index]}无效, 跳过")
+                continue
+
+            gt_boxes.append(dict(
+                label=label, conf=conf, bbox=bbox, polygon=polygon,
+                flags={"difficult": False}, shape_type=shape_type,
+            ))
+        
         return gt_boxes
     
     @classmethod
-    def voc2match(cls, gt_entities: dict, use_conf: bool = False, **kwargs) -> list:
+    def voc2match(cls, gt_entities: dict, **kwargs) -> list[dict]:
         """将voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param gt_entities: voc格式的标注文件内容
         :type gt_entities: dict
         :param use_conf: 是否使用置信度, defaults to False
         :type use_conf: bool, optional
+        :return list: 元素是labelme格式的标注对象, 形如: 
+            shape={'label': 'car', 'bbox': None, 'polygon': [], 'flags': {'difficult': False}}
         """
         result = []
         for obj in gt_entities["object"]:
             label = obj["name"]
-            x1, y1, x2, y2 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"], obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
-            if use_conf:
-                conf = min(obj.get('conf', 1.0), obj.get('score', 1.0))
-                result.append([label, conf, x1, y1, x2, y2])
-            else:
-                result.append([label, x1, y1, x2, y2])
+            x1, y1 = obj["bndbox"]["xmin"], obj["bndbox"]["ymin"]
+            x2, y2 = obj["bndbox"]["xmax"], obj["bndbox"]["ymax"]
+            if not box_valid((x1, y1, x2, y2)):
+                logger.warning(f"标注框{x1, y1, x2, y2}无效, 跳过")
+                continue
+            conf = min(obj.get('conf', 1.0), obj.get('score', 1.0))
+            difficult = bool(obj.get('difficult', 0))
+                
+            result.append({
+                "label": label,
+                "conf": conf,
+                "bbox": [x1, y1, x2, y2],
+                "polygon": [],
+                "flags": {"difficult": difficult},
+                "shape_type": "rectangle",  # Note: 目前只支持检测框, 多边形暂时不支持
+            })
+        
         return result
     
-    def middle2match(self, entities: list | dict, suffix: str | None = None, use_conf: bool = False, **kwargs) -> list:
+    def middle2match(self, entities: list | dict, suffix: str | None = None, **kwargs) -> list[dict]:
         """从labelme|yolo|voc格式的标注文件加载内容转为匹配格式, 匹配格式由自定义匹配模块定义
 
         :param list entities: 各种格式的标签直接加载的对象
         :param str suffix: 标签文件后缀名
-        :param bool use_conf: 是否使用置信度
-        :return list: 示例列表
+        :return list[dict]: 示例列表
         """
         if entities is None:
             return []
         if suffix is None or suffix == ".json":
-            return self.labelme2match(entities, use_conf=use_conf, **kwargs)
+            return self.labelme2match(entities, **kwargs)
         elif suffix == ".txt":
-            return self.yolo2match(entities, use_conf=use_conf, **kwargs)
+            return self.yolo2match(entities, **kwargs)
         elif suffix == ".xml":
-            return self.voc2match(entities, use_conf=use_conf, **kwargs)
+            return self.voc2match(entities, **kwargs)
         else:
             raise ValueError(f"不支持的标签文件后缀名{suffix}")
 
@@ -619,18 +791,9 @@ class StatisticSimple(object):
         return img_shape
 
     @classmethod
-    def conf_filter(cls, label_list: list, conf_thresh: dict, **kwargs) -> list:
+    def conf_filter(cls, label_list: list[dict], conf_thresh: dict, **kwargs) -> list[dict]:
         """根据置信度阈值过滤预测结果"""
-        res_lbl = [lbl for lbl in label_list if lbl[1] >= conf_thresh[lbl[0]]]
-        return res_lbl
-
-    def delete_conf(self, label_list: list, **kwargs) -> list:
-        """删除预测结果中的置信度信息, 只保留类别和框信息
-
-        :param list label_list: 预测结果列表
-        :return list: 删除置信度后的预测结果列表
-        """
-        res_lbl = [[lbl[0], *lbl[2:]] for lbl in label_list]
+        res_lbl = [lbl for lbl in label_list if lbl.get("conf", 1) >= conf_thresh[lbl["label"]]]
         return res_lbl
 
     def middle_post_process(self, label_list: list, call_backs: list, **kwargs) -> list:
@@ -694,7 +857,7 @@ class StatisticConfusion(StatisticSimple):
             pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
             use_fpfn: bool = False, conf: float | list = 0,
             ios_thresh: float = 0.5, iou_thresh: float = 0.5, 
-            filter_category: list = [], **kwargs
+            filter_category: list = [], difficult_filter: bool = True, **kwargs
         ):
         """初始化统计类
 
@@ -737,9 +900,14 @@ class StatisticConfusion(StatisticSimple):
         self.background = False
         
         # 初始化统计的matrix
-        self.matrix = ConfusionMatrix(len(self.classes), self.classes, filter_category=filter_category)
+        self.matrix = ConfusionMatrix(
+            len(self.classes), self.classes, 
+            filter_category=filter_category, difficult_filter=difficult_filter
+        )
+        self.difficult_filter = difficult_filter
         self.use_fpfn = use_fpfn
-        self.call_backs = [self.conf_filter, self.delete_conf]
+        self.call_backs = [self.conf_filter]
+        self.lock = threading.Lock()
     
     def load_datasets(self):
         """从预测文件加载数据集, 返回一个生成器对象, 第一个元素是items数量
@@ -774,14 +942,13 @@ class StatisticConfusion(StatisticSimple):
         :param update_dict: 更新字典, 格式为{类别: 预测向量}, 如: {"background": [1,0,0,1,0,1]}
         :type update_dict: dict
         """
-        if recall:
-            for key, value in update_dict.items():
-                key_index = self.classes.index(key)
-                self.matrix.matrix_recall[:, key_index] += value     # 更新matrix_recall某一列
-        else:
-            for key, value in update_dict.items():
-                key_index = self.classes.index(key)
-                self.matrix.matrix_precision[key_index, :] += value  # 更新matrix_precision某一行
+        for key, value in update_dict.items():
+            key_index = self.classes.index(key)
+            with self.lock:
+                if recall:
+                    self.matrix.matrix_recall[:, key_index] += value     # 更新matrix_recall某一列
+                else:
+                    self.matrix.matrix_precision[key_index, :] += value  # 更新matrix_precision某一行
 
     def save_fpfn_pipeline(self, match_object: dict, gt_file: str, img_shape: tuple):
         """保存FP, FN实例为子数据集, 标签使用labelme格式
@@ -792,8 +959,8 @@ class StatisticConfusion(StatisticSimple):
         :param img_shape: 图片shape
         :type img_shape: tuple
 
-        note: match_object['boxesStatus']中保存了TPG, TPP, FP, FN四种实例列表, \
-            实例的保存格式是: [label, x1, y1, x2, y2]
+        note: match_object['boxesStatus']中保存了TPG, TPP, FP, FN四种实例列表, 实例的保存格式是: 
+            shape={'label': 'car', 'bbox': None, 'polygon': [], 'flags': {'difficult': False}}
         """
 
         fp_list = match_object['boxesStatus']['fp']
@@ -802,6 +969,8 @@ class StatisticConfusion(StatisticSimple):
             return None
         
         tpg_list = match_object['boxesStatus']['tpg']
+        fnd_list = match_object['boxesStatus']['fnDiff']
+
         labelme_dict = {
             "version": "4.5.6",
             "flags": {
@@ -816,20 +985,28 @@ class StatisticConfusion(StatisticSimple):
             "imageWidth": img_shape[1],
         }
 
-        def _add_instance(instance_list: list[list], add_suffix: str = ""):
+        def _add_instance(instance_list: list[dict], add_suffix: str = ""):
             for instance in instance_list:
-                label, x1, y1, x2, y2 = instance
+                points = instance["polygon"] if instance["shape_type"] == "polygon" \
+                    else [instance["bbox"][:2], instance["bbox"][2:]]
                 labelme_dict['shapes'].append({
-                    "label": f"{label}-{add_suffix}" if add_suffix else label,
-                    "points": [[x1, y1], [x2, y2]],
+                    "label": f"{instance['label']}-{add_suffix}" if add_suffix else instance['label'],
+                    "points": points,
                     "group_id": None,
-                    "shape_type": "rectangle",
-                    "flags": {"predStatus": True if add_suffix != "fn" else False}
+                    "shape_type": instance["shape_type"],
+                    "flags": {
+                        # "predStatus": True if add_suffix != "fn" else False,
+                        "difficult": instance.get('flags', {}).get('difficult', False),
+                        "FP": add_suffix == "fp",
+                        "FN": add_suffix == "fn",
+                        "TPG": add_suffix == "tpg" or add_suffix == "",
+                    }
                 })
         
         _add_instance(tpg_list)
         _add_instance(fp_list, add_suffix='fp')
         _add_instance(fn_list, add_suffix='fn')
+        _add_instance(fnd_list, add_suffix='fn')
 
         save_file_path = self.dst_dir / "fpfn_datasets" / f"{gt_file.stem}.json"
         save_file_path.parent.mkdir(exist_ok=True, parents=True)
@@ -840,14 +1017,14 @@ class StatisticConfusion(StatisticSimple):
         gt_entities = self.load_lbl_data(gt_file, self.gt_suffix)
         img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
         # 匹配预测结果和标签文件
-        pred_conf_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape, use_conf=True)
+        pred_conf_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape)
         gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
         # 过滤中间态结果
         pred_boxes = self.middle_post_process(pred_conf_boxes, self.call_backs,  conf_thresh=self.conf, **kwargs)
         # 计算IoU
         ios_thresh = kwargs.get('ios_thresh', 0.5)
         iou_thresh = kwargs.get('iou_thresh', 0.5)
-        match_object = yolo_match(
+        match_object = obj_matcher(
             pred_boxes, gt_boxes, 
             use_ios=self.use_ios, mode="xyxy", 
             iou_thresh=iou_thresh, ios_thresh=ios_thresh,
@@ -857,6 +1034,11 @@ class StatisticConfusion(StatisticSimple):
         # 更新统计实验数据
         self.update(match_object['updateItemsRecall'], recall=True)
         self.update(match_object['updateItemsPrecision'], recall=False)
+
+        # 判断是否需要对Difficult实例进行单独处理
+        if self.difficult_filter:
+            self.matrix.update_difficult_fn(match_object["boxesStatus"]["fnDiff"])
+            self.matrix.update_difficult_tp(match_object["boxesStatus"]["tpDiff"])
 
         # 保存GT和误报实例为数据子集, 标签使用labelme格式
         if self.use_fpfn:
@@ -870,7 +1052,8 @@ class StatisticConfusion(StatisticSimple):
         entities_generator = self.load_datasets()
         total_num = next(entities_generator)
 
-        future_bar = FutureBar(total=total_num, desc="StatisticConfusion")
+        # future开启多线程, 不能使用多进程（代码没有考虑多进程的情况）
+        future_bar = FutureBar(total=total_num, desc="StatisticConfusion", max_workers=kwargs.get('max_workers', None))
         future_bar(self.match, entities_generator, total=total_num)
 
         # 保存统计结果

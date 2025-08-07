@@ -70,23 +70,35 @@ class ConfusionMatrix:
     def __init__(
             self, num_classes, category: list[str] = None, cmap: str = "YlGnBu", 
             chinese: bool | str = False, exclude_zero=True, filter_category=[],
+            difficult_filter=False
         ):
         self.num_classes = num_classes
         self.matrix_recall = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.matrix_precision = np.zeros((num_classes, num_classes), dtype=np.int32)
         self.normal_matrix_recall = None
         self.normal_matrix_precision = None
+        self.difficult_fn = np.zeros(num_classes, dtype=np.int32)
+        self.difficult_tp = np.zeros(num_classes, dtype=np.int32)
         self.category = category
         self.cmap = cmap
         if chinese:
             self.set_plt(font_path=chinese if isinstance(chinese, str) else None)
         self.exclude_zero = exclude_zero
         self.filter_category = np.array([False if filter_c in filter_category else True for filter_c in category])
+        self.difficult_filter = difficult_filter
 
     @classmethod
     def set_plt(cls, font_path = None):
         set_plt(font_path=font_path)
-
+    
+    def update_difficult_fn(self, shapes):
+        for shape in shapes:
+            self.difficult_fn[self.category.index(shape["label"])] += 1
+    
+    def update_difficult_tp(self, shapes):
+        for shape in shapes:
+            self.difficult_tp[self.category.index(shape["label"])] += 1
+    
     def add_matrix_item(self, i: int, j: int, value: int, recall: bool = True):
         if recall:
             self.matrix_recall[i][j] += value
@@ -159,7 +171,7 @@ class ConfusionMatrix:
         :param path: 文件路径
         :type path: str
         """
-        eps = 1e-5
+        eps = 1e-16
         self.get_normalize_matrix()  # 计算归一化的混淆矩阵
 
         pd_matrix_recall = pd.DataFrame(self.matrix_recall, columns=self.category, index=self.category)
@@ -177,18 +189,25 @@ class ConfusionMatrix:
         # 对角线元素
         recall_num = self.matrix_recall.diagonal()[self.filter_category]
         precision_num = self.matrix_precision.diagonal()[self.filter_category]
+        fn_difficult_num = self.difficult_fn[self.filter_category]
+        tp_difficult_num = self.difficult_tp[self.filter_category]
+        difficult_num = fn_difficult_num + tp_difficult_num
+        
         recall = recall_num / (gt_num + eps)
         precision = precision_num / (pred_num + eps)
 
         # 根据filter过滤无关类别(类别变少了)
         rp = np.stack([gt_num, recall, pred_num, precision], axis=1)
 
-        # 整体召回精度计算需要排除backgroud, 默认索引为-1
+        # 整体召回精度计算需要排除background, 默认索引为-1
         gt_total_num = gt_num[:-1].sum()
         pred_total_num = pred_num[:-1].sum()
         total_recall = (np.sum(recall_num[:-1]) + eps) / (gt_total_num + eps)
         total_precision = (np.sum(precision_num[:-1]) + eps) / (pred_total_num + eps)
-        rp = np.vstack([rp, [gt_total_num, total_recall, pred_total_num, total_precision]])
+        if self.difficult_filter:
+            rp = np.hstack([rp, difficult_num, fn_difficult_num, tp_difficult_num])
+        difficult_extend = [""] * 3 if self.difficult_filter else []
+        rp = np.vstack([rp, [gt_total_num, total_recall, pred_total_num, total_precision] + difficult_extend])
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
@@ -198,10 +217,14 @@ class ConfusionMatrix:
         
         mr = np.mean(recall[:-1][index_array])
         mp = np.mean(precision[:-1][index_array])
-        rp = np.vstack([rp, ["-", mr, "-", mp]])
+        
+        rp = np.vstack([rp, ["-", mr, "-", mp] + difficult_extend])
+        
         _rp_index = [self.category[i] for i in range(len(self.category)) if self.filter_category[i]] + ["Total", "Mean"]
-
-        df_rp = pd.DataFrame(rp, columns=["GtNum", "Recall", "PredNum", "Precision"], index=_rp_index)
+        _rp_columns = ["GtNum", "Recall", "PredNum", "Precision"]
+        if self.difficult_filter:
+            _rp_columns += ["DifficultNum", "DifficultFN", "DifficultTP"]
+        df_rp = pd.DataFrame(rp, columns=_rp_columns, index=_rp_index)
         
         for col in df_rp.columns:
             # 尝试转换为 float 或 int，无法转换的保持原样

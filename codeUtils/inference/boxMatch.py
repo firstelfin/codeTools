@@ -36,6 +36,8 @@ def yolo_match(pred_boxes, gt_boxes, iou_thresh=0.5, ios_thresh=0.5, use_ios=Fal
     :rtype: dict
     """
 
+    print(FutureWarning("'codeUtils.inference.boxMatch.yolo_match' will be deprecated, use 'codeUtils.inference.base.obj_matcher' instead."))
+
     # 格式转换
     if mode.lower() == "xywh":
         box1_list = [[box[0], *xywh2xyxy(box[1:5])] for box in pred_boxes]
