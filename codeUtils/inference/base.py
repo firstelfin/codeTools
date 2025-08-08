@@ -112,7 +112,7 @@ def obj_matcher(
     pred_labels = np.array([ins_obj["label"] for ins_obj in pred_boxes])
     gt_labels = np.array([ins_obj["label"] for ins_obj in gt_boxes])
     # 基于GT记录difficult信息
-    gt_difficult = np.array([ins_obj.get("difficult") for ins_obj in gt_boxes], dtype=bool)
+    gt_difficult = np.array([ins_obj["flags"].get("difficult") for ins_obj in gt_boxes], dtype=bool)
 
     # 选择使用的匹配函数和阈值
     if use_ios:

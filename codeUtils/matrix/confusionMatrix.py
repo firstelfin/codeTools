@@ -165,6 +165,13 @@ class ConfusionMatrix:
         """
         print(cls.simplified_chinese_help.__doc__)
 
+    @staticmethod
+    def config_column_width(column_name):
+        if "difficult" in column_name.lower():
+            return 8
+        else:
+            return len(column_name)
+
     def save_xlsx(self, path: str):
         """保存混淆矩阵和Recall-Precision到Excel文件
 
@@ -193,8 +200,8 @@ class ConfusionMatrix:
         tp_difficult_num = self.difficult_tp[self.filter_category]
         difficult_num = fn_difficult_num + tp_difficult_num
         
-        recall = recall_num / (gt_num + eps)
-        precision = precision_num / (pred_num + eps)
+        recall = np.round(recall_num / (gt_num + eps), decimals=8)
+        precision = np.round(precision_num / (pred_num + eps), decimals=8)
 
         # 根据filter过滤无关类别(类别变少了)
         rp = np.stack([gt_num, recall, pred_num, precision], axis=1)
@@ -205,9 +212,12 @@ class ConfusionMatrix:
         total_recall = (np.sum(recall_num[:-1]) + eps) / (gt_total_num + eps)
         total_precision = (np.sum(precision_num[:-1]) + eps) / (pred_total_num + eps)
         if self.difficult_filter:
-            rp = np.hstack([rp, difficult_num, fn_difficult_num, tp_difficult_num])
+            rp = np.hstack([rp, difficult_num[:, None], fn_difficult_num[:, None], tp_difficult_num[:, None]])
         difficult_extend = [""] * 3 if self.difficult_filter else []
-        rp = np.vstack([rp, [gt_total_num, total_recall, pred_total_num, total_precision] + difficult_extend])
+        rp = np.vstack([
+            rp,
+            [gt_total_num, np.round(total_recall, 8), pred_total_num, np.round(total_precision, 8)] + difficult_extend
+        ])
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
@@ -215,8 +225,8 @@ class ConfusionMatrix:
         else:
             index_array = np.ones_like(recall[:-1], dtype=bool)
         
-        mr = np.mean(recall[:-1][index_array])
-        mp = np.mean(precision[:-1][index_array])
+        mr = np.round(np.mean(recall[:-1][index_array]), decimals=8)
+        mp = np.round(np.mean(precision[:-1][index_array]), decimals=8)
         
         rp = np.vstack([rp, ["-", mr, "-", mp] + difficult_extend])
         
@@ -296,9 +306,13 @@ class ConfusionMatrix:
                 series = df_rp[col]
                 max_len = max((
                     series.astype(str).map(len).max(),  # len of largest item
-                    len(str(series.name))  # len of column name/header
+                    self.config_column_width(str(series.name))  # len of column name/header
                 )) + 1  # adding a little extra space
-                worksheet_rp.set_column(idx + 1 + start_row, idx + 1 + start_row, max_len)  # set column width
+                worksheet_rp.set_column(idx + 1 + start_col, idx + 1 + start_col, max_len)  # set column width
+            # 自动调整索引列的列宽
+            index_len = max(df_rp.index.astype(str).map(len).max(), 5)  # 5 is the minimum width
+            worksheet_rp.set_column(start_col, start_col, index_len)  # set index column width
+
 
     def get_normalize_matrix(self):
         """获取归一化的混淆矩阵"""
