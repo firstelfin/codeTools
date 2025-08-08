@@ -324,10 +324,10 @@ class ConfusionMatrix:
             
             # 写入统计信息到xlsx文件
             if self.difficult_filter:
-                total_difficult_num = difficult_num.sum()
-                total_gt_num = total_difficult_num + gt_total_num
+                total_fn_difficult_num = fn_difficult_num.sum()
+                total_gt_num = total_fn_difficult_num + gt_total_num
                 difficult_statistic = f"总计GT实例{total_gt_num}个, 上报实例{pred_total_num}个\n" + \
-                    f"困难实例{total_difficult_num}个, 发现{tp_difficult_num.sum()}个, 遗漏{fn_difficult_num.sum()}个"
+                    f"困难实例{difficult_num.sum()}个, 发现{tp_difficult_num.sum()}个, 遗漏{total_fn_difficult_num}个"
                 merge_start_cell = f"{xl_col_to_name(start_col+rp.shape[1]-2)}{start_row+rp.shape[0]-1}"  # 行编码从1开始,且表头和索引分别要占一行一列
                 merge_end_cell = f"{xl_col_to_name(start_col+rp.shape[1])}{start_row+rp.shape[0]+1}"
                 merge_cell_range = f"{merge_start_cell}:{merge_end_cell}"

@@ -163,12 +163,16 @@ def obj_matcher(
     update_items_recall = {class_name: [0]*len(_classes) for class_name in _classes}
     update_items_precision = {class_name: [0]*len(_classes) for class_name in _classes}
     # Note: 记录fn、tpg数据；fn也即将instance预测为background, tpg是gt中和预测完美匹配的实例
+    target_items_after_filtered = np.array([True]*len(gt_boxes), dtype=bool)  # 需要纳入GT考虑的范围
+    target_gt_boxes_after_filtered = [gb for gbi, gb in enumerate(gt_boxes) if target_items_after_filtered[gbi]]
     for i, box in enumerate(gt_boxes):
         cls_index = box['label'] if isinstance(box['label'], int) else _classes.index(box['label'])  # gt类别索引
         box_cls = _classes[cls_index]  # gt类别名称
         # 判别是否漏报
         if gt_status[i]:  # 非漏报场景: tpg
             update_items_recall[box_cls][cls_index] += 1
+        elif gt_difficult[i]:  # 困难目标, 则不计算为漏报
+            target_items_after_filtered[i] = False
         elif iou_matrix.shape[0] and iou_status_matrix[:, i].max():  # 误报场景: fp for gt
             # 选择最佳iou匹配
             pred_index = int(iou_status_matrix[:, i].argmax())
@@ -176,8 +180,6 @@ def obj_matcher(
             pred_cls_index = pred_box['label'] if isinstance(pred_box['label'], int) else _classes.index(pred_box['label'])
             update_items_recall[box_cls][pred_cls_index] += 1
         else:  # 漏报场景: fn
-            if gt_difficult[i]:  # 如果是困难目标, 则不计算为漏报
-                continue
             update_items_recall[box_cls][-1] += 1
 
     # Note: 记录fp数据; 
@@ -190,10 +192,10 @@ def obj_matcher(
             continue
         
         # 判断是否和gt box通过匹配预值
-        if iou_matrix.shape[1] and iou_status_matrix[j, :].max():  # 类别没有匹配, 但是IOU大于阈值
+        if iou_matrix[:, target_items_after_filtered].shape[1] and iou_status_matrix[j, target_items_after_filtered].max():  # 类别没有匹配, 但是IOU大于阈值
             # 获取iou_status_matrix[j, :]为True的索引
-            gt_index = int(iou_status_matrix[j, :].argmax())
-            gt_box = gt_boxes[gt_index]
+            gt_index = int(iou_status_matrix[j, target_items_after_filtered].argmax())
+            gt_box = target_gt_boxes_after_filtered[gt_index]
             gt_cls_index = gt_box['label'] if isinstance(gt_box['label'], int) else _classes.index(gt_box['label'])
             # gt_cls = _classes[gt_cls_index]
             update_items_precision[box_cls][gt_cls_index] += 1
@@ -1037,8 +1039,9 @@ class StatisticConfusion(StatisticSimple):
 
         # 判断是否需要对Difficult实例进行单独处理
         if self.difficult_filter:
-            self.matrix.update_difficult_fn(match_object["boxesStatus"]["fnDiff"])
-            self.matrix.update_difficult_tp(match_object["boxesStatus"]["tpDiff"])
+            with self.lock:
+                self.matrix.update_difficult_fn(match_object["boxesStatus"]["fnDiff"])
+                self.matrix.update_difficult_tp(match_object["boxesStatus"]["tpDiff"])
 
         # 保存GT和误报实例为数据子集, 标签使用labelme格式
         if self.use_fpfn:
