@@ -1177,9 +1177,11 @@ class StatisticMatrix(StatisticSimple):
         gt_entities = self.load_lbl_data(gt_file, self.gt_suffix)
         img_shape = self.get_image_shape(pred_entities, gt_entities, **kwargs)
         # 匹配预测结果和标签文件
-        ## pred_boxes的元素为: [label, conf, x1, y1, x2, y2]
-        pred_boxes = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape, use_conf=True)
-        gt_boxes = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
+        ## pred_boxes的元素为: shape={'label': 'car', 'bbox': [], 'polygon': [], 'flags': {'difficult': False}}
+        pred_middle = self.middle2match(pred_entities, suffix=self.pred_suffix, img_shape=img_shape, use_conf=True)
+        gt_middle = self.middle2match(gt_entities, suffix=self.gt_suffix, img_shape=img_shape)
+        pred_boxes = [[b['label'], b['conf'], *b['bbox']] for b in pred_middle]
+        gt_boxes = [[b['label'], *b['bbox']] for b in gt_middle]
         gt_boxes = np.array(gt_boxes) if gt_boxes else np.zeros((0, 5))
         pred_boxes = np.array(pred_boxes) if pred_boxes else np.zeros((0, 6))
 
@@ -1241,7 +1243,7 @@ class StatisticMatrix(StatisticSimple):
                        *[self.number_format(x) for x in self.matrix.mean_results()]])
 
         if self.nt_per_class.sum() == 0:
-            logger.warning(f"WARNING ⚠️ no labels found in {self.args.task} set, can not compute metrics without labels")
+            logger.warning(f"WARNING ⚠️ no labels found, can not compute metrics without labels")
 
         # Print results per class
         if self.verbose and self.nc > 1 and len(self.stats):
@@ -1268,11 +1270,6 @@ class StatisticMatrix(StatisticSimple):
         self.print_results()
 
         return self.matrix
-
-
-
-
-    pass
 
 
 class SlidingWindowBase(object):
