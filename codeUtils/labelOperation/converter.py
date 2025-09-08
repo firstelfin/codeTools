@@ -363,9 +363,9 @@ class ToCOCO(ABC):
 
     Args:
         img_dir (str|list): Pascal VOC format img file directory or list of directories.
-        lbl_dir (str): Pascal VOC format label file directory or list of directories.
-        dst_dir (str): coco format file directory.
-        classes (str): yolo classes.txt file path.
+        lbl_dir (str|list): Pascal VOC format label file directory or list of directories.
+        dst_dir (str): coco format file directory, default is './COCODatasets'
+        classes (str|list): yolo classes.txt file path or list of class names.
         use_link (bool): whether to use symbolic link to save images.
         split (str): data split, 'train', 'val', 'test'.
         year (str): year of dataset.
@@ -381,13 +381,13 @@ class ToCOCO(ABC):
     """
 
     def __init__(
-            self, img_dir: str = None, lbl_dir: str = None, dst_dir: str = None, classes: str = None, 
-            use_link: bool = False, split: str = 'train', img_idx: int = 0, ann_idx: int = 0, 
-            year: str = None, class_start_index: Literal[0, 1] = 0
+            self, img_dir: str | list = '', lbl_dir: str | list = '', dst_dir: str = './COCODatasets',
+            classes: str | list = [], use_link: bool = False, split: str = 'train', img_idx: int = 0,
+            ann_idx: int = 0, year: str = None, class_start_index: Literal[0, 1] = 0
         ):
         
         self.img_dir = [Path(p) for p in img_dir] if isinstance(img_dir, list) else Path(img_dir)
-        if lbl_dir is None:
+        if lbl_dir == '':
             self.lbl_dir = self.img_dir
         elif isinstance(lbl_dir, list):
             self.lbl_dir = [Path(p) for p in lbl_dir]
@@ -441,11 +441,12 @@ class ToCOCO(ABC):
                 self.img_idx += 1
                 res.append(([img_file, lbl_file, self.split, self.img_idx], {}))
         else:
-            for img_dir in self.img_dir:
+            for i, img_dir in enumerate(self.img_dir):
                 for img_file in img_dir.iterdir():
+                    # 排除json文件和系统隐藏文件
                     if img_file.suffix == suffix or img_file.stem.startswith('.'):
                         continue
-                    lbl_file = self.lbl_dir / img_dir.name / f"{img_file.stem}{suffix}"
+                    lbl_file = self.lbl_dir[i] / f"{img_file.stem}{suffix}"
                     self.img_idx += 1
                     res.append(([img_file, lbl_file, self.split, self.img_idx], {}))
         return res

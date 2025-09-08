@@ -1620,6 +1620,9 @@ class PresetAdaptiveWindow(object):
         keep_size (bool, optional): 是否保持窗口大小(低于基础窗口大小时生效), defaults to False
           - True: 保持窗口比例, 即窗口的高宽比不变, 聚类后box是多少, 窗口就返回多少
           - False: 根据window_size修改边框
+        AgglomerativeClustering (bool, optional): 聚类算法, defaults to AgglomerativeClustering
+        KMeans (bool, optional): 聚类算法, defaults to KMeans
+        window_padding (float, optional): 窗口边界扩展, defaults to 0
 
     Example:
 
@@ -1640,12 +1643,16 @@ class PresetAdaptiveWindow(object):
         ```
     """
 
-    def __init__(self, window_num: int, same_ratio: bool = False, keep_size: bool = False, *args, **kwargs):
-        self.KMeans = self.check_import()
+    def __init__(
+            self, window_num: int, same_ratio: bool = False, keep_size: bool = False, 
+            window_padding: float = 0, *args, **kwargs
+        ):
+        self.KMeans = self.check_import(**kwargs)
         self.keep_size = keep_size
         self.window_num = window_num
         assert window_num > 0, "window_num should be greater than 0"
         self.same_ratio = same_ratio
+        self.window_padding = min(max(0, window_padding), 1)
         super().__init__()
     
     def get_centers(self, bboxes: list[list]):
@@ -1682,10 +1689,15 @@ class PresetAdaptiveWindow(object):
             max_x2 = max(box[2] for box in cluster_boxes)
             max_y2 = max(box[3] for box in cluster_boxes)
 
-            win_x1 = int(max(0, min_x1))
-            win_y1 = int(max(0, min_y1))
-            win_x2 = int(min(src_size_dict.get("img_w", max_x2), max_x2))
-            win_y2 = int(min(src_size_dict.get("img_h", max_y2), max_y2))
+            max_w = max([box[2] - box[0] for box in cluster_boxes])
+            max_h = max([box[3] - box[1] for box in cluster_boxes])
+            padding_w = int(max_w * self.window_padding)
+            padding_h = int(max_h * self.window_padding)
+
+            win_x1 = int(max(0, min_x1 - padding_w))
+            win_y1 = int(max(0, min_y1 - padding_h))
+            win_x2 = int(min(src_size_dict.get("img_w", max_x2), max_x2 + padding_w))
+            win_y2 = int(min(src_size_dict.get("img_h", max_y2), max_y2 + padding_h))
             
             windows.append((win_x1, win_y1, win_x2, win_y2))
         return windows
@@ -1766,11 +1778,15 @@ class PresetAdaptiveWindow(object):
             windows[i] = (win_x1, win_y1, win_x2, win_y2)
         return windows
 
-    def check_import(self):
+    def check_import(self, **kwargs):
         try:
-            from sklearn.cluster import KMeans
+            from sklearn.cluster import KMeans, AgglomerativeClustering
         except ImportError:
             raise ImportError("Please install sklearn: [pip install scikit-learn] to use PresetAdaptiveWindow")
+        if kwargs.get("KMeans", None) is not None:
+            return KMeans
+        elif kwargs.get("AgglomerativeClustering", None) is not None:
+            return AgglomerativeClustering
         return KMeans
     
     def __call__(self, bboxes: list[list], window_size: tuple[int], image_shape=None, *args, **kwargs):
@@ -1786,9 +1802,14 @@ class PresetAdaptiveWindow(object):
         k = min(self.window_num, len(bboxes))  # 实际使用的窗口数不超过目标数
         if k == 0:
             return []
+        
+        self.cluster = self.KMeans(n_clusters=k, random_state=0) if self.KMeans.__name__ == "KMeans" else self.KMeans(n_clusters=k)
 
-        k_means = self.KMeans(n_clusters=k, random_state=0).fit(centers)
-        labels = k_means.labels_
+        if k >= 2:
+            k_means = self.cluster.fit(centers)
+            labels = k_means.labels_
+        else:
+            labels = [0] * len(bboxes)
 
         # 为每个聚类计算覆盖所有目标的最小窗口, 并合并较小的类外接矩形框
         windows = self.get_cluster_window(k, labels, bboxes, image_shape)

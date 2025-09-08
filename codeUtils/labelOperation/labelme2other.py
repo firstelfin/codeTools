@@ -245,10 +245,11 @@ def labelme2coco(
         lbl_dir: PosixPath = None, img_idx: int = 0, ann_idx: int = 0, 
         use_link: bool = False, split: str = 'train', year: str = "", 
         class_start_index: int = 0
-        ) -> None:
+        ) -> tuple[int]:
     lbl2coco = Labelme2COCO(
         img_dir, lbl_dir, dst_dir, classes, use_link=use_link, split=split, 
         img_idx=img_idx, ann_idx=ann_idx, year=year, class_start_index=class_start_index
     )
     lbl2coco()
+    return lbl2coco.img_idx, lbl2coco.ann_idx
 
