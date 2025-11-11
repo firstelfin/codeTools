@@ -73,7 +73,7 @@ def save_labelme_label(label_path: str | Path, label_dict: dict):
     save_json(label_path, label_dict)
 
 
-def save_yolo_label(label_path: str, label_list: list[str, list]):
+def save_yolo_label(label_path: str, label_list: list[str | list]):
     """支持自动化保存YOLO格式的标签文件
 
     :param str label_path: 文件路径
@@ -87,12 +87,12 @@ def save_yolo_label(label_path: str, label_list: list[str, list]):
             f.write(line_str)
 
 
-def voc_generate(voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+def voc_generate(voc_header: dict | None= None, objects: list[dict] | None = None, other_keys: list = []):
     """生成 voc 格式的标注文件
 
     :param dict voc_header: voc格式的文件头信息(非实例信息), defaults to None
     :param list[dict] objects: 实例信息, defaults to None
-    :param list other_keys: 自定义实例属性列表, defaults to None
+    :param list other_keys: 自定义实例属性列表, defaults to []
     """
 
     if objects is None:
@@ -197,7 +197,7 @@ def voc_generate(voc_header: dict = None, objects: list[dict] = None, other_keys
     return annotation
 
 
-def save_voc_label(xml_file: str, voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+def save_voc_label(xml_file: str, voc_header: dict | None = None, objects: list[dict] | None = None, other_keys: list = []):
     """保存 voc 格式的标注文件
 
     :param str xml_file: 保存的文件路径
@@ -205,11 +205,10 @@ def save_voc_label(xml_file: str, voc_header: dict = None, objects: list[dict] =
     :param list[dict] objects: 实例的列表, 元素是实例字典, defaults to None
     :param list other_keys: 自定义实例属性列表, defaults to None
     """
+    if voc_header is None:
+        voc_header = VOC_HEADER
     if objects is None:
-        if "object" in voc_header:
-            objects = voc_header["object"]
-        else:
-            objects = []
+        objects = voc_header["object"] if "object" in voc_header else []
 
     annotation = voc_generate(voc_header, objects, other_keys)
     lxml_tree = etree.ElementTree(etree.fromstring(str(annotation).encode("utf-8")))
@@ -217,7 +216,7 @@ def save_voc_label(xml_file: str, voc_header: dict = None, objects: list[dict] =
         lxml_tree.write(f, pretty_print=True, encoding="utf-8", xml_declaration=True)
 
 
-def voc_show(voc_header: dict = None, objects: list[dict] = None, other_keys: list = None):
+def voc_show(voc_header: dict | None= None, objects: list[dict] | None = None, other_keys: list = []):
     annotation = voc_generate(voc_header, objects, other_keys)
     print(annotation.prettify(formatter="html"))
 

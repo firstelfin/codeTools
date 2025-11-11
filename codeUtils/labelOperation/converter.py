@@ -21,7 +21,7 @@ from pathlib import Path, PosixPath
 from dataclasses import dataclass, field, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from codeUtils.labelOperation.readLabel import read_txt, read_yolo, read_voc, parser_json
-from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label
+from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label, save_yolo_label, save_voc_label
 from codeUtils.tools.futureConf import FutureBar
 from codeUtils.tools.loadFile import load_img
 
@@ -150,7 +150,7 @@ class DectConverter(object):
         if lbmd is None:
             if read_func is None:
                 raise TypeError("read_func is None. Expected a callable function to read label file.")
-            lbmd = read_func(lbl_file, img_file)
+            lbmd = read_func(lbl_file, img_file, {})
 
         # 基于LabelmeData对象转换
         if lbmd is not None and isinstance(lbmd, LabelmeData):
@@ -174,7 +174,7 @@ class DectConverter(object):
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
             save_dir: str | Path | None = None,
         ) -> None:
         """转为yolo格式的标准输出接口.
@@ -192,14 +192,126 @@ class DectConverter(object):
         """
         
         lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+        save_file_path = str(save_dir / f"{lbl_file.stem}.txt")
+        # lbmd是None, 读取标签文件
+        if lbmd is None:
+            if read_func is None:
+                raise TypeError("read_func is None. Expected a callable function to read label file.")
+            lbmd = read_func(lbl_file, img_file, {})
+        
+        # 基于LabelmeData对象转换
+        if lbmd is not None and isinstance(lbmd, LabelmeData):
+            lbl_list = []
+            img_h, img_w = lbmd.imageHeight, lbmd.imageWidth
+            for shape in lbmd.shapes:  # shape: ShapeInstance
+                if shape.shape_type == "polygon":
+                    lbl_list.append(self.classes.index(shape.label))
+                    for i in range(len(shape.points) // 2):
+                        lbl_list.extend([shape.points[i][0] / img_w, shape.points[i][1] / img_h])
+                    lbl_list.append(shape.score)
+                elif shape.shape_type == "rectangle":
+                    x1, y1 = shape.points[0][0] / img_w, shape.points[0][1] / img_h
+                    x2, y2 = shape.points[1][0] / img_w, shape.points[1][1] / img_h
+                    w, h = x2 - x1, y2 - y1
+                    x_c, y_c = (x1 + x2) / 2, (y1 + y2) / 2
+                    lbl_list.append([self.classes.index(shape.label), x_c, y_c, w, h, shape.score])
+                else:
+                    raise ValueError(f"Unsupported shape type: {shape.shape_type}")
+            save_yolo_label(save_file_path, lbl_list)
+        elif lbmd is not None:
+            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
+        else:
+            # lbmd是None, 保存空实例文件
+            save_yolo_label(save_file_path, [])
 
     def to_voc(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
             save_dir: str | Path | None = None,
         ) -> None:
+        """LabelmeData对象转为voc格式的标准输出接口.
+
+        :param lbmd: 标准的LabelmeData对象, defaults to None
+        :type lbmd: LabelmeData | None, optional
+        :param lbl_file: 源标注文件, defaults to None
+        :type lbl_file: str | Path | None, optional
+        :param img_file: 源图像文件, defaults to None
+        :type img_file: str | Path | None, optional
+        :param read_func: 读取标签的函数, defaults to None
+        :type read_func: Callable[[str  |  Path  |  LabelmeData, str  |  Path, Any], LabelmeData] | None, optional
+        :param save_dir: 保存目录, defaults to None
+        :type save_dir: str | Path | None, optional
+        """
+
+        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+        save_file_path = str(save_dir / f"{lbl_file.stem}.xml")
+        # lbmd是None, 读取标签文件
+        if lbmd is None:
+            if read_func is None:
+                raise TypeError("read_func is None. Expected a callable function to read label file.")
+            lbmd = read_func(lbl_file, img_file, {})
+        
+        # 基于LabelmeData对象转换
+        voc_dict = {
+            "folder": "",
+            "filename": "",
+            "path": "",
+            "source": {"database": "Unknown"},
+            "size": {"width": 0, "height": 0, "depth": 0},
+            "segmented": 0,
+            "object": []
+        }
+        if lbmd is not None and isinstance(lbmd, LabelmeData):
+            voc_dict["size"] = {"width": lbmd.imageWidth, "height": lbmd.imageHeight, "depth": 3}
+            for shape in lbmd.shapes:  # shape: ShapeInstance
+                if shape.shape_type == "polygon":
+                    x_list = [p[0] for p in shape.points]
+                    y_list = [p[1] for p in shape.points]
+                    x_min, x_max = min(x_list), max(x_list)
+                    y_min, y_max = min(y_list), max(y_list)
+                    obj_dict = {
+                        "name": shape.label,
+                        "pose": "Unspecified",
+                        "truncated": 0,
+                        "difficult": 0,
+                        "bndbox": {"xmin": x_min, "ymin": y_min, "xmax": x_max, "ymax": y_max},
+                        # TODO: 增加分割表示 RLX格式, 添加score字段到保存内
+                        "score": shape.score,
+                    }
+                    voc_dict["object"].append(obj_dict)
+                elif shape.shape_type == "rectangle":
+                    obj_dict = {
+                        "name": shape.label,
+                        "pose": "Unspecified",
+                        "truncated": 0,
+                        "difficult": 0,
+                        "bndbox": {
+                            "xmin": shape.points[0][0],
+                            "ymin": shape.points[0][1],
+                            "xmax": shape.points[1][0],
+                            "ymax": shape.points[1][1],
+                        },
+                        "confidence": shape.score,
+                    }
+                    voc_dict["object"].append(obj_dict)
+                else:
+                    raise ValueError(f"Unsupported shape type: {shape.shape_type}")
+
+            save_voc_label(save_file_path, voc_dict)
+        elif lbmd is not None:
+            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
+        else:
+            # lbmd是None, 保存空实例文件, 图像路径与图像size需要根据实际情况填写
+            src_img = load_img(img_file)
+            if img_file is None:
+                raise ValueError(f"img_file is None. Expected a image file path. got lbl_file: {lbl_file}.")
+            elif src_img is None:
+                raise FileExistsError(f"Failed to load image file {img_file}.")
+            img_h, img_w = src_img.shape[:2]
+            voc_dict["size"] = {"width": img_w, "height": img_h, "depth": 3}
+            save_voc_label(save_file_path, voc_dict)
         pass
 
     def to_coco(
@@ -383,7 +495,7 @@ class ToCOCO(ABC):
     def __init__(
             self, img_dir: str | list = '', lbl_dir: str | list = '', dst_dir: str = './COCODatasets',
             classes: str | list = [], use_link: bool = False, split: str = 'train', img_idx: int = 0,
-            ann_idx: int = 0, year: str = None, class_start_index: Literal[0, 1] = 0
+            ann_idx: int = 0, year: str = "", class_start_index: Literal[0, 1] = 0
         ):
         
         self.img_dir = [Path(p) for p in img_dir] if isinstance(img_dir, list) else Path(img_dir)
@@ -400,7 +512,7 @@ class ToCOCO(ABC):
         self.start_img_idx = img_idx
         self.img_idx = img_idx
         self.ann_idx = ann_idx
-        self.year = year if year is not None else ""
+        self.year = year
         self.names = dict()
         self.name2idx = dict()
         self.coco_images = dict()
@@ -573,7 +685,8 @@ class ToCOCO(ABC):
     def __call__(self, *args, **kwargs):
 
         all_async_items = self.load_items()
-        cpu_num = max(os.cpu_count() // 2, 6)
+        cpu_kernel_num = os.cpu_count() or 6
+        cpu_num = max(cpu_kernel_num // 2, 6)
         exec_bar = FutureBar(max_workers=cpu_num, timeout=20, desc=self.__class__.__name__)
         exec_bar(self.coco_prepare, all_async_items, total=self.img_idx-self.start_img_idx)
 

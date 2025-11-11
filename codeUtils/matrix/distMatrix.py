@@ -268,7 +268,7 @@ def ap_per_class(
 
     # Compute F1 (harmonic mean of precision and recall)
     f1_curve = 2 * p_curve * r_curve / (p_curve + r_curve + eps)  # shape=(nc, 1000)
-    names = dict(enumerate(unique_classes))  # to dict
+    names = dict(enumerate(unique_classes.tolist()))  # to dict
     cls_is_int = True if isinstance(unique_classes[0], int) else False
     if plot:
         plot_pr_curve(x, p_rec_values, ap, save_dir / f"{prefix}PR_curve.png", names, on_plot=on_plot)
