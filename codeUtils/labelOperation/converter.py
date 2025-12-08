@@ -96,25 +96,45 @@ class DectConverter(object):
         self.src_dir = src_dir
         self.classes = classes
         self.names = names if names else {i: self.classes[i] for i in range(len(self.classes))}
+        self.gather = dict()  # 耦合数据缓存
 
     def __call__(self, *args, **kwargs):
         """转换入口"""
 
     def pre_validate(
-            self, 
-            lbl_file: str | Path | None, 
-            save_dir: str | Path | None, 
-            img_file: str | Path | None = None
-        ) -> tuple[Path, Path, Path]:
+            self,
+            lbmd: LabelmeData | None = None,
+            lbl_file: str | Path | None = None, 
+            img_file: str | Path | None = None,
+            read_func: Callable[[str | Path, str | Path, Any], LabelmeData] | None = None,
+            save_dir: str | Path | None = None, 
+            **kwargs,
+        ) -> tuple[LabelmeData, Path, Path, Path]:
+        """数据转换前的入参检查.
+
+        :param LabelmeData | None lbmd: 标准标注数据对象, defaults to None, Optional
+        :param str | Path | None lbl_file: 标注文件路径, defaults to None
+        :param str | Path | None img_file: 图像文件路径, defaults to None, Optional
+        :param Callable[[str|Path, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
+        :param str | Path | None save_dir: 保存目录, defaults to None
+        :return tuple[LabelmeData, Path, Path, Path]: 标注文件的LabelmeData对象, 标注文件路径, 图像文件路径, 保存目录路径
+        """
         if lbl_file is None:
             raise ValueError("lbl_file is None. Expected a label file path.")
         if save_dir is None:
             raise ValueError("save_dir is None. Expected a save directory path.")
-        if img_file is None:
-            res_img = Path("")
-        else:
-            res_img = Path(img_file)
-        return Path(lbl_file), Path(save_dir), res_img
+        save_dir = Path(save_dir)
+        lbl_file = Path(lbl_file) if lbl_file is not None else Path("")
+        img_file = Path(img_file) if img_file is not None else Path("")
+        
+        # lbmd是None, 读取标签文件
+        if lbmd is None:
+            if read_func is None:
+                raise TypeError("read_func is None. Expected a callable function to read label file.")
+            lbmd = read_func(lbl_file, img_file, kwargs)
+        if lbmd is not None and not isinstance(lbmd, LabelmeData):
+            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
+        return lbmd, lbl_file, img_file, save_dir
     
     def to_labelme(
             self, lbmd: LabelmeData | None = None, 
@@ -125,19 +145,16 @@ class DectConverter(object):
         ) -> None:
         """转为labelme格式的标准输出接口.
 
-        :param lbmd: 标准的LabelmeData对象, defaults to None
-        :type lbmd: LabelmeData | None, optional
-        :param lbl_file: 源标注文件, defaults to None
-        :type lbl_file: str | None, optional
-        :param img_file: 源图像文件, defaults to None
-        :type img_file: str | None, optional
-        :param read_func: 读取标签的函数, defaults to None
-        :type read_func: Callable | None, optional
-        :param save_dir: 保存目录, defaults to None
-        :type save_dir: str | None, optional
+        :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
+        :param str | Path | None lbl_file: 源标注文件, defaults to None
+        :param str | Path | None img_file: 源图像文件, defaults to None
+        :param Callable[[str  |  Path, str  |  Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
+        :param str | Path | None save_dir: 保存目录, defaults to None
+        :raises ValueError: 输入参数错误
+        :raises FileExistsError: 图像文件不存在
         """
 
-        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
         
         labelme_update = {
             "version": "4.5.6",
@@ -146,19 +163,11 @@ class DectConverter(object):
         }
         save_file_path = save_dir / f"{lbl_file.stem}.json"
 
-        # lbmd是None, 读取标签文件
-        if lbmd is None:
-            if read_func is None:
-                raise TypeError("read_func is None. Expected a callable function to read label file.")
-            lbmd = read_func(lbl_file, img_file, {})
-
         # 基于LabelmeData对象转换
-        if lbmd is not None and isinstance(lbmd, LabelmeData):
+        if isinstance(lbmd, LabelmeData):
             lbl_dict = asdict(lbmd)
             lbl_dict.update(labelme_update)
             save_labelme_label(save_file_path, lbl_dict)
-        elif lbmd is not None:
-            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
         else:
             # lbmd是None, 保存空实例文件, 图像路径与图像size需要根据实际情况填写
             src_img = load_img(img_file)
@@ -179,28 +188,19 @@ class DectConverter(object):
         ) -> None:
         """转为yolo格式的标准输出接口.
 
-        :param lbmd: 标准的LabelmeData对象, defaults to None
-        :type lbmd: LabelmeData | None, optional
-        :param lbl_file: 源标注文件, defaults to None
-        :type lbl_file: str | Path | None
-        :param img_file: 源图像文件, defaults to None
-        :type img_file: str | Path | None, optional
-        :param read_func: 读取标签的函数, defaults to None
-        :type read_func: Callable[[str | Path], LabelmeData] | None, optional
-        :param save_dir: 保存目录, defaults to None
-        :type save_dir: str | Path | None, optional
+        :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
+        :param str | Path | None lbl_file: 源标注文件, defaults to None
+        :param str | Path | None img_file: 源图像文件, defaults to None
+        :param Callable[[str|Path|LabelmeData, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
+        :param str | Path | None save_dir: 保存目录, defaults to None
+        :raises ValueError: 输入参数错误
         """
         
-        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
         save_file_path = str(save_dir / f"{lbl_file.stem}.txt")
-        # lbmd是None, 读取标签文件
-        if lbmd is None:
-            if read_func is None:
-                raise TypeError("read_func is None. Expected a callable function to read label file.")
-            lbmd = read_func(lbl_file, img_file, {})
         
         # 基于LabelmeData对象转换
-        if lbmd is not None and isinstance(lbmd, LabelmeData):
+        if isinstance(lbmd, LabelmeData):
             lbl_list = []
             img_h, img_w = lbmd.imageHeight, lbmd.imageWidth
             for shape in lbmd.shapes:  # shape: ShapeInstance
@@ -218,8 +218,6 @@ class DectConverter(object):
                 else:
                     raise ValueError(f"Unsupported shape type: {shape.shape_type}")
             save_yolo_label(save_file_path, lbl_list)
-        elif lbmd is not None:
-            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
         else:
             # lbmd是None, 保存空实例文件
             save_yolo_label(save_file_path, [])
@@ -233,25 +231,15 @@ class DectConverter(object):
         ) -> None:
         """LabelmeData对象转为voc格式的标准输出接口.
 
-        :param lbmd: 标准的LabelmeData对象, defaults to None
-        :type lbmd: LabelmeData | None, optional
-        :param lbl_file: 源标注文件, defaults to None
-        :type lbl_file: str | Path | None, optional
-        :param img_file: 源图像文件, defaults to None
-        :type img_file: str | Path | None, optional
-        :param read_func: 读取标签的函数, defaults to None
-        :type read_func: Callable[[str  |  Path  |  LabelmeData, str  |  Path, Any], LabelmeData] | None, optional
-        :param save_dir: 保存目录, defaults to None
-        :type save_dir: str | Path | None, optional
+        :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
+        :param str | Path | None lbl_file: 源标注文件, defaults to None
+        :param str | Path | None img_file: 源图像文件, defaults to None
+        :param Callable[[str|Path|LabelmeData, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
+        :param str | Path | None save_dir: 保存目录, defaults to None
         """
 
-        lbl_file, save_dir, img_file = self.pre_validate(lbl_file, save_dir, img_file)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
         save_file_path = str(save_dir / f"{lbl_file.stem}.xml")
-        # lbmd是None, 读取标签文件
-        if lbmd is None:
-            if read_func is None:
-                raise TypeError("read_func is None. Expected a callable function to read label file.")
-            lbmd = read_func(lbl_file, img_file, {})
         
         # 基于LabelmeData对象转换
         voc_dict = {
@@ -263,7 +251,7 @@ class DectConverter(object):
             "segmented": 0,
             "object": []
         }
-        if lbmd is not None and isinstance(lbmd, LabelmeData):
+        if isinstance(lbmd, LabelmeData):
             voc_dict["size"] = {"width": lbmd.imageWidth, "height": lbmd.imageHeight, "depth": 3}
             for shape in lbmd.shapes:  # shape: ShapeInstance
                 if shape.shape_type == "polygon":
@@ -300,8 +288,6 @@ class DectConverter(object):
                     raise ValueError(f"Unsupported shape type: {shape.shape_type}")
 
             save_voc_label(save_file_path, voc_dict)
-        elif lbmd is not None:
-            raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
         else:
             # lbmd是None, 保存空实例文件, 图像路径与图像size需要根据实际情况填写
             src_img = load_img(img_file)
@@ -312,16 +298,33 @@ class DectConverter(object):
             img_h, img_w = src_img.shape[:2]
             voc_dict["size"] = {"width": img_w, "height": img_h, "depth": 3}
             save_voc_label(save_file_path, voc_dict)
-        pass
 
     def to_coco(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path], LabelmeData] | None = None, 
+            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
             save_dir: str | Path | None = None,
+            **kwargs,
         ) -> None:
-        pass
+        """将标准标注对象LabelmeData对象转换为COCO的数据标注. COCO转换时需要对数据进行聚合, 所以此类转换统一归档后处理.
+
+        :param LabelmeData lbmd: 标准的LabelmeData对象, defaults to None, optional
+        :param str|Path|None lbl_file: 标注文件路径, defaults to None, optional
+        :param str|Path|None img_file: 图像文件路径, defaults to None, optional
+        :param Callable[[str|Path|LabelmeData, str|Path], LabelmeData, Any]|None read_func: 读取标签的函数, defaults to None, optional
+        :param str|Path|None save_dir: 保存目录, defaults to None, optional
+        """
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
+        split = kwargs.get("split", "train")
+        if split not in self.gather:
+            self.gather[split] = []
+        self.gather[split].append({
+            "lbmd": lbmd,
+            "lbl_file": lbl_file,
+            "img_file": img_file,
+            "save_dir": save_dir,
+        })
 
 
     @classmethod
@@ -494,7 +497,7 @@ class ToCOCO(ABC):
 
     def __init__(
             self, img_dir: str | list = '', lbl_dir: str | list = '', dst_dir: str = './COCODatasets',
-            classes: str | list = [], use_link: bool = False, split: str = 'train', img_idx: int = 0,
+            classes: str | list = [], use_link: bool = False, split: str | list = 'train', img_idx: int = 0,
             ann_idx: int = 0, year: str = "", class_start_index: Literal[0, 1] = 0
         ):
         
