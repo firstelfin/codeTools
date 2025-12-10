@@ -10,6 +10,7 @@
 
 import os
 import time
+import math
 import shutil
 import cv2 as cv
 from enum import Enum
@@ -33,14 +34,18 @@ class ShapeInstance(object):
     Attributes:
         label (str|int): 实例标签
         points (list[list[int|float]]): 实例坐标点
-        shape_type (str): 实例类型, 如"polygon", "rectangle"
+        shape_type (str): 实例类型, 如"polygon", "rectangle", "rotation"
         flags (dict): 实例标注属性
         score (float): 实例分数
+    
+    rotation:  # 使用标准的DOTA格式
+        points: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]  # 顺时针方向矩形四个点的坐标
+        shape_type: "rotation"
     """
 
     label: str | int
     points: list[list[int|float]] = field(default_factory=list)
-    shape_type: Literal["polygon", "rectangle"] = field(default="rectangle")
+    shape_type: Literal["polygon", "rectangle", "rotation"] = field(default="rectangle")
     flags: dict = field(default_factory=dict)
     score: float = field(default=1.0)
 
@@ -62,7 +67,7 @@ class LabelmeData(object):
     imageWidth: int = field(default=0)
 
 
-class DectConverter(object):
+class DetConverter(object):
     """检测、分割数据转换基类
 
     定义LabelmeData转为其他数据类的接口, 并提供转换的统一入口.
@@ -100,6 +105,65 @@ class DectConverter(object):
 
     def __call__(self, *args, **kwargs):
         """转换入口"""
+
+    # 角度整备
+    def direction_prepare(
+            self, points: list[list[int|float]],
+            radiance: bool = True,
+            mode: Literal["semantic_refer", "long_edge_refer", "opencv_refer"] = "semantic_refer",
+        ) -> dict:
+        u"""从标准DOTA格式的四点坐标中获取顺时针方向的角度.
+            - DOTA, YOLO都直接支持原始四个点的坐标, 无需转换, 无需角度计算
+
+        :param list[list[int | float]] points: 四个坐标点
+        :param bool radiance: 是否返回弧度制的角度, defaults to True
+        :param str mode: 角度计算模式, defaults to "semantic_refer"
+
+        参数使用说明
+        ==============
+
+            - opencv_refer: 是否角度在第四象限内, 默认为False, 角度取值范围是(0, $\pi$/2]
+            - long_edge_refer: 是否使用长边作为参考, 默认为False, 角度取值范围是[0, $\pi$)
+            - semantic_refer: 是否使用语义方向(point1 -> point2)作为参考, 默认为False, 角度取值范围是[0, 2$\pi$)
+        
+        :return dict: 返回旋转框的robndbox
+        """
+
+        robndbox = []
+        direction = 0.0
+
+        [x1, y1], [x2, y2], [x3, y3], [x4, y4] = points
+        cx = (x1 + x3 + x2 + x4) / 4.0  # 矩形中心点x
+        cy = (y1 + y3 + y2 + y4) / 4.0  # 矩形中心点y
+        pri_vec = [x2 - x1, y2 - y1]  # 矩形左上角到右上角的向量
+        sec_vec = [x3 - x2, y3 - y2]  # 矩形右上角到右下角的向量
+        width = (pri_vec[0] ** 2 + pri_vec[1] ** 2) ** 0.5  # 矩形宽度
+        height = (sec_vec[0] ** 2 + sec_vec[1] ** 2) ** 0.5  # 矩形高度
+        pri_angle = (math.atan2(pri_vec[1], pri_vec[0]) + math.pi) % math.pi  # 宽与水平向右的夹角
+        sec_angle = (math.atan2(sec_vec[1], sec_vec[0]) + math.pi) % math.pi  # 高与水平向右的夹角
+
+        if mode == "semantic_refer":  # 矩形左上角到右上角的角度
+            direction = (math.atan2(-pri_vec[1], pri_vec[0]) + 2 * math.pi) % (2 * math.pi)
+            robndbox = [cx, cy, width, height, direction]
+        elif mode == "long_edge_refer":  # 长边与水平向右的夹角
+            direction = pri_angle if width >= height else sec_angle
+            robndbox = [cx, cy, width, height, direction]
+        elif mode == "opencv_refer":  # 限制第四象限 (opencv、YOLO)
+            direction = pri_angle if pri_angle <= (math.pi / 2) else sec_angle  # 取最小角度, 非负
+            if direction == sec_angle:
+                width, height = height, width  # 指定角度方向为宽所在的边
+            robndbox = [cx, cy, width, height, direction]
+        else:
+            raise ValueError(f"Invalid mode: {mode}.")
+
+
+        robndbox_dict = {
+            "robndbox": robndbox,
+            "direction": direction,
+        }
+        return robndbox_dict
+
+    # 转换标签
 
     def pre_validate(
             self,
@@ -326,7 +390,8 @@ class DectConverter(object):
             "save_dir": save_dir,
         })
 
-
+    # 读取标签文件为LabelmeData对象
+    
     @classmethod
     def from_labelme(cls, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> LabelmeData:
         """从labelme标注文件读取数据, 并返回LabelmeData对象.
