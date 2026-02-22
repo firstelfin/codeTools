@@ -21,6 +21,7 @@ from numpy import ndarray
 from PIL import Image
 from pathlib import Path, PosixPath
 from concurrent.futures import ThreadPoolExecutor
+from . import CPU_KERNEL_NUM
 
 
 class CacheFile:
@@ -69,7 +70,7 @@ class CacheFile:
     class_name = "CacheFile"
 
     def __init__(
-            self, file_path: str|PosixPath, symlink: bool=True, 
+            self, file_path: str|Path, symlink: bool=True, 
             max_workers: int=4, usage_mode: str="or", 
             gb_threshold: float=0.2, ratio_threshold:float=0.05
         ):
@@ -85,7 +86,7 @@ class CacheFile:
         self.file_path = Path(file_path)
         self.symlink = symlink
         self.gb = 2**30  # 1GB
-        self.cpu_cores = max(min(int(os.cpu_count() * 0.8), max_workers), 6)
+        self.cpu_cores = max(min(int(CPU_KERNEL_NUM * 0.8), max_workers), 6)
         self.usage_mode = usage_mode.lower()
         assert self.usage_mode in ["or", "and"], "Unsupported usage_mode"
         self.free_gb_threshold = gb_threshold  # 200MB
@@ -109,7 +110,7 @@ class CacheFile:
 
     @staticmethod
     @contextmanager
-    def lock(link_paths: list[str|PosixPath], timeout: int=10):
+    def lock(link_paths: list[Path], timeout: int=10):
         """上下文管理器，确保在删除软链接时不被读取。"""
 
         lock_links = [Path(link_path).with_suffix('.lock') for link_path in link_paths]
@@ -129,7 +130,7 @@ class CacheFile:
                 if lock_file.exists() and should_cleanup[j]:
                     lock_file.unlink()
 
-    def cache_save(self, data: str|bytes|dict|list|ndarray, file_path: str|PosixPath, mode: str="msgpack"):
+    def cache_save(self, data: str|bytes|dict|list|ndarray, file_path: str|Path, mode: str="msgpack"):
         """保存Python字典(列表)到缓存文件, 支持msgpack和json格式. msgpack数据保存比json数据保存快快快太多了.
 
         :param str | bytes | dict | list data: Python数据
@@ -138,11 +139,14 @@ class CacheFile:
         :raises ValueError: Unsupported mode
         """
         mode = mode.lower()
+        file_path = Path(file_path)
         lock_files = [file_path, file_path.resolve()] if file_path.is_symlink() else [file_path]
         try:
             with self.lock(lock_files):
                 if mode == "msgpack":
                     packed_data = msgpack.packb(data)
+                    if not isinstance(packed_data, bytes):
+                        raise TypeError(f"msgpack.packb() should return bytes, got {type(packed_data)}")
                     with open(file_path, "wb") as f:
                         f.write(packed_data)
                 elif mode == "json":
@@ -150,9 +154,13 @@ class CacheFile:
                         json.dump(data, f, ensure_ascii=False)
                 elif mode == "webp":
                     # 当前webp格式cv在保存数据上的支持没有pillow好
+                    if not isinstance(data, ndarray):
+                        raise TypeError(f"data should be numpy.ndarray, got {type(data)}")
                     image_data = Image.fromarray(data)
                     image_data.save(file_path, format=mode)
                 elif mode in ["jpeg", "png"]:
+                    if not isinstance(data, ndarray):
+                        raise TypeError(f"data should be numpy.ndarray, got {type(data)}")
                     cv.imwrite(str(file_path), data)
                 else:
                     raise ValueError(f"Unsupported mode: {mode}")
@@ -160,7 +168,7 @@ class CacheFile:
             return False
         return True
     
-    def cache_load(self, file_path: str|PosixPath, mode: str="msgpack"):
+    def cache_load(self, file_path: str|Path, mode: str="msgpack"):
         """加载缓存文件为Python字典(列表), msgpack数据加载比json数据加载快30%.
         加载缓存文件时, 会自动对target文件进行锁定, 防止被其他进程读取。
 
@@ -227,7 +235,7 @@ class CacheFile:
         # 缓存文件保存
         save_path, link_path = self.inject_obj_parser(inject_obj, suffix=mode.lower(), soft_link=self.symlink)
         # 文件已经存在, 删除原文件极其软链接
-        if self.symlink:
+        if self.symlink and link_path is not None:
             self.cache_delete(link_path)
         else:
             self.cache_delete(save_path)
@@ -239,7 +247,7 @@ class CacheFile:
                 link_path.symlink_to(save_path.absolute())
         return True
     
-    def cache_delete(self, link_path: str|PosixPath):
+    def cache_delete(self, link_path: str|Path):
         """删除缓存文件软链接, link_path如果是软链接路径, target文件也会被删除, lock是自适应.
 
         :param str | PosixPath link_path: 缓存文件软链接路径 或 缓存文件路径
@@ -250,22 +258,20 @@ class CacheFile:
             return True
         
         is_link = link_path.is_symlink()
-        if is_link:
-            target = link_path.resolve()
+        lock_files = [link_path, link_path.resolve()] if is_link else [link_path]
         
-        lock_files = [link_path, target] if is_link else [link_path]
         try:
             with self.lock(lock_files):
                 link_path.unlink()
                 if is_link:
-                    target.unlink()
+                    lock_files[-1].unlink()
             return True
         except FileExistsError:
             return False
         except:
             if link_path.exists():
                 status = False
-            elif is_link and target.exists():
+            elif is_link and lock_files[-1].exists():
                 status = False
             else:
                 status = True
@@ -338,6 +344,7 @@ class CacheFile:
                     cache_file_path = parser_path[int(self.symlink)]
                     mode = data_dict["mode"].lower()
 
+                assert cache_file_path is not None, "cache_file_path is None"
                 req = executor.submit(self.cache_load, cache_file_path, mode)
                 res.append(req)
         result = [req.result() for req in res]

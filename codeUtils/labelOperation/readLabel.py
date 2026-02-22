@@ -25,6 +25,9 @@ def parser_json(json_file: str | Path):
             continue
     return None
 
+def read_json(json_file: str | Path):
+    return parser_json(json_file)
+
 
 def read_yolo(label_file: str | Path):
     """读取yolo格式的标签文件, 返回一个列表"""

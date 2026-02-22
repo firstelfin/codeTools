@@ -9,6 +9,7 @@
 '''
 
 import os
+from typing import List, Any
 from loguru import logger
 from tqdm import tqdm
 from functools import partial
@@ -16,6 +17,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from codeUtils.tools.fontConfig import colorstr
 from codeUtils.callback.tqdmCallback import TqdmFutureCallback
+from . import CPU_KERNEL_NUM
 
 
 class FutureBar(object):
@@ -38,7 +40,7 @@ class FutureBar(object):
             unit_divisor=1000, write_bytes=False, lock_args=None, nrows=None, 
             delay=0, gui=False, **kwargs
         ):
-        self.max_workers = max_workers if isinstance(max_workers, int) else max(os.cpu_count() // 2, 6)
+        self.max_workers = max_workers if isinstance(max_workers, int) else max(CPU_KERNEL_NUM // 2, 6)
         self.use_process = use_process
         self.bar_callback = TqdmFutureCallback(timeout=timeout)
         new_desc = colorstr("bright_blue", "bold", desc) if isinstance(desc, str) else desc
@@ -63,15 +65,16 @@ class FutureBar(object):
         else:
             return ThreadPoolExecutor(max_workers=self.max_workers)
     
-    def retry_failed_tasks(self, exec_func):
+    def retry_failed_tasks(self, exec_func, results):
         if self.bar_callback.future_error:
             logger.warning(f"There are {len(self.bar_callback.future_error)} errors in the concurrent tasks.")
         else:
             return None
         
         logger.info(f"Retrying {len(self.bar_callback.future_error)} tasks...")
-        for param_args, param_kwargs, e in self.bar_callback.future_error:
-            exec_func(*param_args, **param_kwargs)
+        for param_args, param_kwargs, e, idx in self.bar_callback.future_error:
+            result = exec_func(*param_args, **param_kwargs)
+            results[idx] = result
 
     def __call__(self, exec_func, params, *args, **kwargs):
         """自定义多进程、多线程执行接口
@@ -82,13 +85,18 @@ class FutureBar(object):
         total = len(list(deepcopy(params))) if "total" not in kwargs else kwargs["total"]
         self.bar_kwargs.update({"total": total})
         self.bar = self.init_bar()
+        results: List[Any] = [None] * total
         with self.get_concurrent_executor() as executor:  # TODO: 多进程执行是有问题的, 循环直接退出没有等待执行
-            for param_args, param_kwargs in params:
+            for idx, (param_args, param_kwargs) in enumerate(params):
                 future = executor.submit(exec_func, *param_args, **param_kwargs)
-                callback = partial(self.bar_callback, bar=self.bar, param_args=param_args, param_kwargs=param_kwargs)
+                callback = partial(
+                    self.bar_callback, bar=self.bar,
+                    param_args=param_args, param_kwargs=param_kwargs,
+                    results = results, index=idx)
                 future.add_done_callback(callback)
 
         self.bar.close()
-        self.retry_failed_tasks(exec_func=exec_func)
+        self.retry_failed_tasks(exec_func=exec_func, results=results)
+        return results
 
 

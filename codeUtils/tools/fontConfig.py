@@ -44,13 +44,13 @@ def font_download():
     pass
 
 
-def valid_local_font(font_path: str = None):
+def valid_local_font(font_path: str = ''):
     """加载本地字体文件，并设置 matplotlib 全局字体
 
     :param str font_path: 字体文件路径, defaults to None
     """
     chinese_font = ["SimHei", "Arial.Unicode", "PingFang"]
-    if font_path is not None and Path(font_path).exists():
+    if font_path is not None and Path(font_path).exists() and Path(font_path).is_file():
         return font_path
     else:
         for name in chinese_font:
@@ -58,16 +58,16 @@ def valid_local_font(font_path: str = None):
             if temp_path.exists():
                 return str(temp_path)
         print(f"字体文件 {font_path} 不存在, 也未发现中文字体文件. 下载请调用命令 'elfin font --download' 下载默认字体文件！🏇")
-        return None
+        return ''
 
 
-def set_plt(font_path: str = None):
+def set_plt(font_path: str = ''):
     if font_path is None or not Path(font_path).exists():
         font_dir = Path.home() / ".config/elfin/fonts/"
         if not font_dir.exists():
             raise FileNotFoundError(f"字体文件目录 {font_path if font_path else font_dir} 不存在！")
         font_path = valid_local_font(font_path)
-        if font_path is None:
+        if not font_path:
             raise FileNotFoundError(f"未找到有效的中文字体文件！")
     font_prop = font_manager.FontProperties(fname=font_path)
     # 获取字体名称

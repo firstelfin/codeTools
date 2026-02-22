@@ -5,10 +5,11 @@
 
 import warnings
 import cv2 as cv
+from numpy import ndarray
 warnings.filterwarnings('ignore')
 
 
-def load_img(img_path):
+def load_img(img_path) -> ndarray | None:
     """加载图像文件
 
     :param img_path: 图像文件路径

@@ -8,6 +8,7 @@
 @Desc    :   tqdm 库相关的回调函数
 '''
 
+from typing import List, Any
 from concurrent.futures import Future
 from tqdm import tqdm
 from tqdm.std import tqdm as std_tqdm
@@ -23,11 +24,15 @@ class TqdmFutureCallback(object):
         self.future_error = list()
         self.timeout = timeout
     
-    def __call__(self, future: Future, bar: std_tqdm, param_args, param_kwargs, *args, **kwargs):
+    def __call__(
+            self, future: Future, bar: std_tqdm, param_args, param_kwargs, 
+            results: List[Any], index: int, *args, **kwargs
+        ):
         try:
-            future.result(timeout=self.timeout)
+            result = future.result(timeout=self.timeout)
+            results[index] = result
         except Exception as e:
-            self.future_error.append((param_args, param_kwargs, e))
+            self.future_error.append((param_args, param_kwargs, e, index))
         finally:
             bar.update(1)
 
