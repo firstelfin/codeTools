@@ -10,5 +10,6 @@
 
 from .execTime import log_time, inject_time, inject_attr
 from .errorDecorator import ErrorCheck
+from .deprecatedConfig import deprecated
 
-__all__ = ["log_time", "inject_time", "inject_attr", "ErrorCheck"]
+__all__ = ["log_time", "inject_time", "inject_attr", "ErrorCheck", "deprecated"]

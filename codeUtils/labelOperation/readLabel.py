@@ -8,6 +8,7 @@
 @Desc    :   None
 '''
 
+import yaml
 import json
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -24,6 +25,7 @@ def parser_json(json_file: str | Path):
         except:
             continue
     return None
+
 
 def read_json(json_file: str | Path):
     return parser_json(json_file)
@@ -119,4 +121,22 @@ def read_txt(txt_file: str):
             continue
         res.append(line)
     return res
+
+
+def read_yaml(file_path: Path | str) -> dict:
+    """
+    安全地读取 YAML 文件
+    """
+    path = Path(file_path)
+
+    # 检查文件是否存在
+    if not path.exists():
+        raise FileNotFoundError(f"文件不存在：{path}")
+
+    # 使用 utf-8 编码打开
+    with path.open('r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+
+    # 处理空文件情况 (safe_load 读取空文件会返回 None)
+    return data if data is not None else {}
 

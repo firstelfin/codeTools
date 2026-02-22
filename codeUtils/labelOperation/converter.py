@@ -14,17 +14,16 @@ import math
 import shutil
 import cv2 as cv
 from enum import Enum
-from typing import Literal, Callable, Optional, Any
+from typing import Literal, Callable, Optional, Any, List
 from loguru import logger
 from tqdm import tqdm
 from abc import ABC, abstractmethod
 from pathlib import Path, PosixPath
 from dataclasses import dataclass, field, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from codeUtils.labelOperation.readLabel import read_txt, read_yolo, read_voc, parser_json
+from codeUtils.labelOperation.readLabel import read_txt, read_yolo, read_voc, read_json, read_yaml
 from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label, save_yolo_label, save_voc_label
-from codeUtils.tools.futureConf import FutureBar
-from codeUtils.tools.loadFile import load_img
+from codeUtils.tools import load_img, FutureBar, segmentation_to_polygons, CPU_KERNEL_NUM, IMG_EXTENSIONS
 
 
 @dataclass(slots=True)
@@ -36,7 +35,7 @@ class ShapeInstance(object):
         points (list[list[int|float]]): 实例坐标点
         shape_type (str): 实例类型, 如"polygon", "rectangle", "rotation"
         flags (dict): 实例标注属性
-        score (float): 实例分数
+        score (float): 实例分数(置信度分数)
     
     rotation:  # 使用标准的DOTA格式
         points: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]  # 顺时针方向矩形四个点的坐标
@@ -67,12 +66,25 @@ class LabelmeData(object):
     imageWidth: int = field(default=0)
 
 
-class DetConverter(object):
+class DetConverter(ABC):
     """检测、分割数据转换基类
 
     定义LabelmeData转为其他数据类的接口, 并提供转换的统一入口.
+
+    :param list[Path]|Path lbl_dir: 源标签地址列表
+    :param Path dst_dir: 保存地址
+    :param list[Path]|Path img_dir: 源图片地址列表
+    :param str split: 子集的划分标识
+    :param int start_img_idx: 图片开始的索引
+    :param int start_ann_idx: 标签开始的索引
+    :param str year: 年份
+    :param int class_start_index: 类别开始的索引
+    :param list classes: 类别列表
+    :param dict names: 索引和类别的map字典
+    :param float min_area: 实例的最小面积参数
     
-    处理流程:
+    处理流程
+    ============
     
     ```mermaid
     graph TD
@@ -84,27 +96,58 @@ class DetConverter(object):
         G --> H[逐个保存为目标格式文件]
     ```
 
-    标签读取:
+    标签读取
+    ============
 
     - 支持读取labelme格式的标注文件
     - 支持读取yolo格式的标注文件
     - 支持读取voc格式的标注文件
     - 支持读取coco格式的标注文件
+
+    转标签:
+
+    - labelme, yolo, voc, COCO
+
+    读标签:
+
+    - labelme, yolo, voc, COCO
     
     """
 
-    def __init__(self, src_dir: list, dst_dir: str, split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
-                 year: str = '', class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {}, **kwargs):
+    def __init__(self, lbl_dir: list, dst_dir: Path, img_dir: list = [], split: str = 'train',
+                 start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
+                 class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+                 min_area: float = 1.0, ignore_img: bool = True, use_link: bool = False, **kwargs):
         """初始化转换器"""
-        if isinstance(src_dir, str):
-            src_dir = [src_dir]
-        self.src_dir = src_dir
+        if isinstance(lbl_dir, (str, Path)):
+            lbl_dir = [lbl_dir]
+        if isinstance(img_dir, (str, Path)):
+            img_dir = [img_dir]
+        self.lbl_dir = [Path(ld) for ld in lbl_dir]
+        self.img_dir = [Path(imd) for imd in img_dir]
+        assert len(self.img_dir) == len(self.lbl_dir), \
+            f"The number of images[{len(self.img_dir)}] and labels[{len(self.lbl_dir)}] is inconsistent."
+
+        self.dst_dir = dst_dir
+        self.split = split
+        self.img_idx_start = start_img_idx
+        self.ann_idx_start = start_ann_idx
+        self.year = year
+        self.class_start_index = class_start_index
         self.classes = classes
         self.names = names if names else {i: self.classes[i] for i in range(len(self.classes))}
+        self.name2id = {name: i+self.class_start_index for i, name in self.names.items()}
+        self.min_area = min_area
+        self.ignore_img = ignore_img
+        self.use_link = use_link
+        self.suffix = ".json"
         self.gather = dict()  # 耦合数据缓存
+        self.read_lbl_func = self.from_labelme  # 子类需要按照需求改变
+        self.save_lbl_func = self.to_labelme  # 子类需要按照需求改变
+        self.dst_dir.mkdir(exist_ok=True, parents=True)
 
     def __call__(self, *args, **kwargs):
-        """转换入口"""
+        return self.convert(*args, **kwargs)
 
     # 角度整备
     def direction_prepare(
@@ -170,7 +213,6 @@ class DetConverter(object):
             lbmd: LabelmeData | None = None,
             lbl_file: str | Path | None = None, 
             img_file: str | Path | None = None,
-            read_func: Callable[[str | Path, str | Path, Any], LabelmeData] | None = None,
             save_dir: str | Path | None = None, 
             **kwargs,
         ) -> tuple[LabelmeData, Path, Path, Path]:
@@ -179,7 +221,6 @@ class DetConverter(object):
         :param LabelmeData | None lbmd: 标准标注数据对象, defaults to None, Optional
         :param str | Path | None lbl_file: 标注文件路径, defaults to None
         :param str | Path | None img_file: 图像文件路径, defaults to None, Optional
-        :param Callable[[str|Path, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
         :param str | Path | None save_dir: 保存目录, defaults to None
         :return tuple[LabelmeData, Path, Path, Path]: 标注文件的LabelmeData对象, 标注文件路径, 图像文件路径, 保存目录路径
         """
@@ -193,9 +234,7 @@ class DetConverter(object):
         
         # lbmd是None, 读取标签文件
         if lbmd is None:
-            if read_func is None:
-                raise TypeError("read_func is None. Expected a callable function to read label file.")
-            lbmd = read_func(lbl_file, img_file, kwargs)
+            lbmd = self.read_lbl_func(lbl_file, img_file, **kwargs)[0]
         if lbmd is not None and not isinstance(lbmd, LabelmeData):
             raise TypeError(f"Invalid type of lbmd. Expected LabelmeData, but got {type(lbmd)}.")
         return lbmd, lbl_file, img_file, save_dir
@@ -203,8 +242,7 @@ class DetConverter(object):
     def to_labelme(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
-            img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path, str | Path, Any], LabelmeData] | None = None, 
+            img_file: str | Path | None = None,
             save_dir: str | Path | None = None
         ) -> None:
         """转为labelme格式的标准输出接口.
@@ -212,13 +250,12 @@ class DetConverter(object):
         :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
         :param str | Path | None lbl_file: 源标注文件, defaults to None
         :param str | Path | None img_file: 源图像文件, defaults to None
-        :param Callable[[str  |  Path, str  |  Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
         :param str | Path | None save_dir: 保存目录, defaults to None
         :raises ValueError: 输入参数错误
         :raises FileExistsError: 图像文件不存在
         """
 
-        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
         
         labelme_update = {
             "version": "4.5.6",
@@ -246,8 +283,7 @@ class DetConverter(object):
     def to_yolo(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
-            img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
+            img_file: str | Path | None = None,
             save_dir: str | Path | None = None,
         ) -> None:
         """转为yolo格式的标准输出接口.
@@ -255,21 +291,20 @@ class DetConverter(object):
         :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
         :param str | Path | None lbl_file: 源标注文件, defaults to None
         :param str | Path | None img_file: 源图像文件, defaults to None
-        :param Callable[[str|Path|LabelmeData, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
         :param str | Path | None save_dir: 保存目录, defaults to None
         :raises ValueError: 输入参数错误
         """
         
-        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
         save_file_path = str(save_dir / f"{lbl_file.stem}.txt")
         
         # 基于LabelmeData对象转换
+        lbl_list = []
         if isinstance(lbmd, LabelmeData):
-            lbl_list = []
             img_h, img_w = lbmd.imageHeight, lbmd.imageWidth
             for shape in lbmd.shapes:  # shape: ShapeInstance
                 if shape.shape_type == "polygon":
-                    lbl_list.append(self.classes.index(shape.label))
+                    lbl_list.append(self.name2id[shape.label])
                     for i in range(len(shape.points) // 2):
                         lbl_list.extend([shape.points[i][0] / img_w, shape.points[i][1] / img_h])
                     lbl_list.append(shape.score)
@@ -278,19 +313,15 @@ class DetConverter(object):
                     x2, y2 = shape.points[1][0] / img_w, shape.points[1][1] / img_h
                     w, h = x2 - x1, y2 - y1
                     x_c, y_c = (x1 + x2) / 2, (y1 + y2) / 2
-                    lbl_list.append([self.classes.index(shape.label), x_c, y_c, w, h, shape.score])
+                    lbl_list.append([self.name2id[shape.label], x_c, y_c, w, h, shape.score])
                 else:
                     raise ValueError(f"Unsupported shape type: {shape.shape_type}")
-            save_yolo_label(save_file_path, lbl_list)
-        else:
-            # lbmd是None, 保存空实例文件
-            save_yolo_label(save_file_path, [])
+        save_yolo_label(save_file_path, lbl_list)
 
     def to_voc(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
-            img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
+            img_file: str | Path | None = None,
             save_dir: str | Path | None = None,
         ) -> None:
         """LabelmeData对象转为voc格式的标准输出接口.
@@ -298,18 +329,17 @@ class DetConverter(object):
         :param LabelmeData | None lbmd: 标准的LabelmeData对象, defaults to None
         :param str | Path | None lbl_file: 源标注文件, defaults to None
         :param str | Path | None img_file: 源图像文件, defaults to None
-        :param Callable[[str|Path|LabelmeData, str|Path, Any], LabelmeData] | None read_func: 读取标签的函数, defaults to None
         :param str | Path | None save_dir: 保存目录, defaults to None
         """
 
-        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
         save_file_path = str(save_dir / f"{lbl_file.stem}.xml")
         
         # 基于LabelmeData对象转换
         voc_dict = {
-            "folder": "",
-            "filename": "",
-            "path": "",
+            "folder": img_file.parent.name if isinstance(img_file, Path) else "",
+            "filename": img_file.name if isinstance(img_file, Path) else "",
+            "path": str(img_file) if isinstance(img_file, Path) else "",
             "source": {"database": "Unknown"},
             "size": {"width": 0, "height": 0, "depth": 0},
             "segmented": 0,
@@ -350,8 +380,6 @@ class DetConverter(object):
                     voc_dict["object"].append(obj_dict)
                 else:
                     raise ValueError(f"Unsupported shape type: {shape.shape_type}")
-
-            save_voc_label(save_file_path, voc_dict)
         else:
             # lbmd是None, 保存空实例文件, 图像路径与图像size需要根据实际情况填写
             src_img = load_img(img_file)
@@ -361,13 +389,13 @@ class DetConverter(object):
                 raise FileExistsError(f"Failed to load image file {img_file}.")
             img_h, img_w = src_img.shape[:2]
             voc_dict["size"] = {"width": img_w, "height": img_h, "depth": 3}
-            save_voc_label(save_file_path, voc_dict)
+        
+        save_voc_label(save_file_path, voc_dict)
 
     def to_coco(
             self, lbmd: LabelmeData | None = None, 
             lbl_file: str | Path | None = None, 
-            img_file: str | Path | None = None, 
-            read_func: Callable[[str | Path | LabelmeData, str | Path, Any], LabelmeData] | None = None, 
+            img_file: str | Path | None = None,
             save_dir: str | Path | None = None,
             **kwargs,
         ) -> None:
@@ -376,10 +404,10 @@ class DetConverter(object):
         :param LabelmeData lbmd: 标准的LabelmeData对象, defaults to None, optional
         :param str|Path|None lbl_file: 标注文件路径, defaults to None, optional
         :param str|Path|None img_file: 图像文件路径, defaults to None, optional
-        :param Callable[[str|Path|LabelmeData, str|Path], LabelmeData, Any]|None read_func: 读取标签的函数, defaults to None, optional
         :param str|Path|None save_dir: 保存目录, defaults to None, optional
+        :param split str: COCO数据集的子集类型, 常见为['train', 'test', 'val'], 默认为train
         """
-        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, read_func, save_dir)
+        lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
         split = kwargs.get("split", "train")
         if split not in self.gather:
             self.gather[split] = []
@@ -393,22 +421,19 @@ class DetConverter(object):
     # 读取标签文件为LabelmeData对象
     
     @classmethod
-    def from_labelme(cls, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> LabelmeData:
-        """从labelme标注文件读取数据, 并返回LabelmeData对象.
+    def from_labelme(cls, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> List[LabelmeData]:
+        """从labelme标注文件读取数据, 并返回LabelmeData对象.(kwargs未使用)
         已经支持:
         1. 矩形标注, 转为points字段[2, 1, 2]
         2. 多边形标注, 转为points字段[n, 1, 2]
 
-        :param lbl_file: labelme格式的标注文件路径
-        :type lbl_file: str | Path
-        :param img_file: 图像文件路径
-        :type img_file: str | Path
-        :return: 标准化的LabelmeData对象
-        :rtype: LabelmeData
+        :param str|Path lbl_file: labelme格式的标注文件路径
+        :param str|Path img_file: 图像文件路径
+        :return List[LabelmeData]: 标准化的LabelmeData对象
         """
         res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
         # 读取labelme格式的标注文件
-        lbl_dict = parser_json(lbl_file)
+        lbl_dict = read_json(lbl_file)
         if lbl_dict is None:
             if not Path(lbl_file).exists():
                 src_img = load_img(img_file)
@@ -429,10 +454,12 @@ class DetConverter(object):
                     score=shape.get("score", 1.0)
                 ) for shape in lbl_dict.get("shapes", [])
             ]
-        return res
+            res.imageHeight = lbl_dict.get("imageHeight", 0)
+            res.imageWidth = lbl_dict.get("imageWidth", 0)
+        return [res]
 
-    def from_yolo(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> LabelmeData:
-        """从yolo标注文件读取数据, 并返回LabelmeData对象. 
+    def from_yolo(self, lbl_file: str | Path, img_file: str | Path, **kwargs) -> List[LabelmeData]:
+        """从yolo标注文件读取数据, 并返回LabelmeData对象. (kwargs未使用)
         已经支持:
         1. conf字段, LabelmeData记录为score字段
         2. 多边形标注, 转为points字段[n, 1, 2]
@@ -443,7 +470,7 @@ class DetConverter(object):
         :param img_file: 图像文件路径
         :type img_file: str | Path
         :return: 标准化的LabelmeData对象
-        :rtype: LabelmeData
+        :rtype: List[LabelmeData]
         """
         
         # 初始化LabelmeData对象
@@ -481,10 +508,10 @@ class DetConverter(object):
             res.shapes.append(
                 ShapeInstance(label=label_name, points=points, shape_type=shape_type, flags={}, score=conf)
             )
-        return res
+        return [res]
     
-    def from_voc(self, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> LabelmeData:
-        """从voc标注文件读取数据, 并返回LabelmeData对象.
+    def from_voc(self, lbl_file: str | Path, img_file: str | Path = "", **kwargs) -> List[LabelmeData]:
+        """从voc标注文件读取数据, 并返回LabelmeData对象. (kwargs使用extra_keys参数)
         已经支持:
         1. 矩形标注, 转为points字段[2, 1, 2]
         2. 多边形标注, 转为points字段[n, 1, 2](暂未支持)
@@ -493,14 +520,21 @@ class DetConverter(object):
         :type lbl_file: str | Path
         :param img_file: 图像文件路径, lbl_file加载不到图像尺寸时, 图像就必须要能够加载到
         :type img_file: str | Path
+        :param list extra_keys: xml中对象需要自定义的字段
         :return: 标准化的LabelmeData对象
-        :rtype: LabelmeData
+        :rtype: List[LabelmeData]
         """
         res = LabelmeData(imagePath=str(img_file), imageHeight=0, imageWidth=0, shapes=[])
         # 读取voc格式的标注文件
         voc_dict = read_voc(label_file=lbl_file, extra_keys=kwargs.get("extra_keys", []))
         if voc_dict is None:
-            return res
+            src_img = load_img(img_file)
+            if src_img is None:
+                raise FileExistsError(f"Failed to load image file {img_file}.")
+            img_h, img_w = src_img.shape[:2]
+            res.imageHeight = img_h
+            res.imageWidth = img_w
+            return [res]
         # 确保图像size不为0
         if voc_dict["size"]["width"] == 0 or voc_dict["size"]["height"] == 0:
             src_img = load_img(img_file)
@@ -527,15 +561,598 @@ class DetConverter(object):
                 res.shapes.append(
                     ShapeInstance(label=label_name, points=[[x1, y1], [x2, y2]], shape_type="rectangle", flags={}, score=score)
                 )
-        return res
+        return [res]
     
-    def from_coco(self, lbl_data: LabelmeData, img_file: str | Path = '', **kwargs) -> LabelmeData:
-        """coco数据预处理时, 会直接将对象处理为LabelmeData对象, 所以不需要再次处理.
+    def from_coco(self, lbl_file: str | Path, img_file: str | Path = '', **kwargs) -> List[LabelmeData]:
+        """coco数据预处理时, 会直接将对象处理为LabelmeData对象, 所以不需要再次处理.(kwargs未使用)
+        :param str|Path lbl_file: coco标注文件(json)
+        :param str|Path img_file: 图像的存储文件夹地址
+
         已经支持:
         1. 矩形标注, 转为points字段[2, 1, 2]
-        2. 多边形标注, 转为points字段[n, 1, 2]
+        2. 多边形标注, 转为points字段[n, 1, 2]. 未完全适应适应多边形内部空洞.
         """
-        return lbl_data
+        coco_dict = read_json(lbl_file)
+        img_file = Path(img_file)
+        if coco_dict is None:
+            return []
+        id_to_name = {img_item['id']: (img_item['file_name'], img_item['height'], img_item['width']) for img_item in coco_dict['images']}
+        categories = {cate_item['id']: cate_item[0] for cate_item in coco_dict['categories']}
+        res = list()
+        for img_id, (img_name, img_height, img_width) in id_to_name.items():
+            img_labelme_data = LabelmeData(imagePath=str(img_file / img_name), imageHeight=img_height, imageWidth=img_width, shapes=[])
+            for ann in coco_dict['annotations']:
+                if ann['id'] != img_id:
+                    continue
+                is_seg = len(ann['segmentation']) > 0
+                if len(ann['segmentation']) > 0:
+                    points = segmentation_to_polygons(ann, min_area=self.min_area)[0]
+                else:
+                    x1, y1, w, h = ann['bbox']
+                    points = [[x1, y1], [x1 + w, y1 + h]]
+                img_labelme_data.shapes.append(ShapeInstance(
+                    label=categories[ann['category_id']],
+                    points=points,
+                    shape_type='polygon' if is_seg else 'rectangle'
+                ))
+        return res
+
+    def coco_gather(self) -> None:
+        """COCO聚合的标签保存"""
+        for split, data_list in self.gather.items():
+            save_split_path = self.dst_dir / "annotations" / f"{split}{self.year}.json"
+            save_image_dir = self.dst_dir / f"{split}{self.year}"
+            save_image_dir.mkdir(exist_ok=True, parents=True)
+            save_split_path.parent.mkdir(exist_ok=True, parents=True)
+            coco_info = {
+                "description": f"COCO {self.year} Dataset",
+                "version": "1.0",
+                "year": self.year,
+                "contributor": "firstelfin",
+                "date_created": time.strftime("%Y/%m/%d", time.localtime()),
+            }
+            save_coco_dict = {
+                "info": coco_info,
+                "images": list(),
+                "annotations": list(),
+                "categories": [
+                    {
+                        "id": i+self.class_start_index,  # 类别id, 起始索引由class_start_index指定
+                        "name": name,
+                        "supercategory": name
+                    } for i, name in self.names.items()
+                ],
+            }
+            for labelme_data in data_list:  # type labelme_data: LabelmeData
+                img_info = {
+                    'id': self.img_idx_start,
+                    'file_name': f"{split}{self.year}/" + labelme_data["img_file"].name,
+                    'height': labelme_data["lbmd"].imageHeight,
+                    'width': labelme_data["lbmd"].imageWidth,
+                }
+                self.img_idx_start += 1
+                save_coco_dict['images'].append(img_info)
+                save_img_path = self.dst_dir / img_info['file_name']
+                if self.use_link:
+                    save_img_path.link_to(labelme_data["img_file"])
+                else:
+                    shutil.copy2(labelme_data["img_file"], save_img_path)
+
+                for shape in labelme_data["lbmd"].shapes:
+                    x_list = [min(max(0, p[0]), labelme_data["lbmd"].imageWidth) for p in shape.points]
+                    y_list = [min(max(0, p[1]), labelme_data["lbmd"].imageHeight) for p in shape.points]
+                    x_min, x_max = min(x_list), max(x_list)
+                    y_min, y_max = min(y_list), max(y_list)
+                    box_w, box_h = x_max - x_min, y_max - y_min
+                    ann_info = {
+                        "id": self.ann_idx_start,
+                        "image_id": self.img_idx_start-1,
+                        "category_id": self.name2id[shape.label],
+                        "bbox": [x_min, y_min, box_w, box_h],
+                        "iscrowd": 0,
+                        "area": box_h * box_w,
+                        "segmentation": [],
+                    }
+                    self.ann_idx_start += 1
+                    save_coco_dict['annotations'].append(ann_info)
+
+            save_json(save_split_path, save_coco_dict)
+        logger.info(f"COCO {self.year} Dataset Gather Finished.")
+        logger.info(f"Images: {self.img_idx_start}, Annotations: {self.ann_idx_start}.")
+
+    # 加载数据集信息
+    @abstractmethod
+    def load_datasets(self, *args, **kwargs):
+        """加载数据集, 要求标签和图像文件夹对齐, 即数量要相同
+        通过status参数控制以图像为准, 还是以标签为准, 加载数据集.
+
+        :yield tuple: 标签, 图像路径
+        """
+
+        status = kwargs.get("status", "images")
+        all_status = ["images", "labels"]
+        assert status in all_status, f"status must be in {all_status}, got {status}."
+        if status == "labels":
+            for lbl_dir, img_dir in zip(self.lbl_dir, self.img_dir):
+                for lbl_file in lbl_dir.iterdir():
+                    # 排除图像文件和系统隐藏文件
+                    if lbl_file.suffix != self.suffix or lbl_file.stem.startswith('.'):
+                        continue
+                    img_files = [img_file for img_file in img_dir.rglob(f"{lbl_file.stem}.*") if img_file.suffix.lower() in IMG_EXTENSIONS]
+                    img_file = img_files[0] if len(img_files) > 0 else ''
+                    if not img_file and not self.ignore_img:
+                        logger.warning(f"Failed to find image file for label file {lbl_file}.")
+                        continue
+                    yield lbl_file, img_file
+        else:
+            for lbl_dir, img_dir in zip(self.lbl_dir, self.img_dir):
+                for img_file in img_dir.iterdir():
+
+                    # 排除标签文件和系统隐藏文件
+                    if img_file.suffix == self.suffix or img_file.stem.startswith('.'):
+                        continue
+                    lbl_file = lbl_dir / f"{img_file.stem}{self.suffix}"
+                    yield lbl_file, img_file
+
+    @abstractmethod
+    def convert(self, *args, **kwargs):
+        """标准转换接口, 转换过程使用FutureBar进行封装, 需要指定self.read_lbl_func和self.save_lbl_func.
+
+        其中:
+            - self.read_lbl_func: 读取标签文件函数, 输入为(lbl_file, img_file), 输出为List[LabelmeData]对象
+            - self.save_lbl_func: 保存标签文件函数, 输入为(labelme_data, lbl_file, img_file, save_dir), 输出为None
+        
+        kwargs参数可以控制自定义的读取参数和保存参数. 数据集聚合型标签文件默认加载标签时, 是将所有标签分文件加载为LabelmeData对象,
+        然后再进行转换. 转换为聚合型标签文件时, 会将LabelmeData对象聚合到self.gather, 并保存为一个文件. 从self.gather保存到文
+        件需要自定义, 子类先调用super().convert()即可.
+        """
+        # 加载源数据集, 需要指定数据集的from_xxx函数, 转换为标准的LabelmeData对象
+        all_lbl_img_files = list(self.load_datasets(*args, **kwargs))
+        params = [([lbl_file, img_file], kwargs) for lbl_file, img_file in all_lbl_img_files]
+        loadding_bar = FutureBar(
+            max_workers=CPU_KERNEL_NUM,
+            use_process=False,
+            timeout=kwargs.get("timeout", 20),
+            desc="Loadding Data"
+        )
+        all_labelme_data = loadding_bar(self.read_lbl_func, params, total=len(params))
+
+        # 转换数据集
+        convert_params = [([labelme_data, lbl_file, img_file, self.dst_dir], {}) for idx, (lbl_file, img_file) in enumerate(all_lbl_img_files)
+                          for labelme_data in all_labelme_data[idx]]
+        convert_bar = FutureBar(
+            max_workers=CPU_KERNEL_NUM,
+            use_process=False,
+            timeout=kwargs.get("timeout", 20),
+            desc="Converting Data"
+        )
+        all_labelme_data = convert_bar(self.save_lbl_func, convert_params, total=len(convert_params))
+
+
+# Labelme数据集转其他数据集
+class DetLabelmeConverter(DetConverter):
+
+    def __init__(
+            self, lbl_dir: List[Path | str] | Path | str, dst_dir: Path,
+            img_dir: List[Path | str] | Path | str = [], split: str = 'train',
+            start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        if isinstance(lbl_dir, (Path, str)):
+            lbl_dir = [lbl_dir]
+        lbl_dir = [Path(p) for p in lbl_dir]
+        if isinstance(img_dir, (Path, str)):
+            img_dir = [img_dir]
+        img_dir = [Path(p) for p in img_dir]
+        if not img_dir:
+            img_dir = lbl_dir.copy()
+        super().__init__(lbl_dir=lbl_dir, dst_dir=dst_dir, img_dir=img_dir, split=split,
+            start_img_idx=start_img_idx, start_ann_idx=start_ann_idx, year=year,
+            class_start_index=class_start_index, classes=classes, names=names,
+            min_area=min_area, ignore_img=ignore_img, **kwargs)
+        self.suffix = ".json"
+        self.read_lbl_func = self.from_labelme
+
+    def load_datasets(self, *args, **kwargs):
+        return super().load_datasets(*args, status="labels", **kwargs)
+
+    def convert(self, *args, **kwargs):
+        return super().convert(*args, **kwargs)
+
+
+def labelme2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
+                 names: dict, img_dir: List[Path | str] | Path | str = []) -> None:
+    """labelme格式的标签转换为yolo格式
+
+    :param List[Path|str]| Path| str lbl_dir: labelme标签源数据地址
+    :param str | Path dst_dir: yolo标签保存地址
+    :param dict names: 索引到类别名称的映射
+    :param List[Path|str]| Path| str img_dir: 图像源数据地址, 默认为空, 则使用labelme标签源数据地址
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import labelme2yolo
+    >>> labelme2yolo(
+    ...     lbl_dir=Path("/Users/elfindan/datasets/coco128/jsons"),
+    ...     dst_dir=Path("/Users/elfindan/datasets/coco128/yolo2"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         78: "hair drier",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+
+    det_converter = DetLabelmeConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir), names=names, img_dir=img_dir)
+    det_converter.save_lbl_func = det_converter.to_yolo
+    det_converter.convert()
+
+
+def labelme2voc(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
+                img_dir: List[Path | str] | Path | str = []) -> None:
+    """labelme格式的标签转换为PasCal VOC格式标签
+
+    :param List[Path|str]| Path| str lbl_dir: labelme标签源数据地址
+    :param str | Path dst_dir: VOC标签保存地址
+    :param List[Path|str]| Path| str img_dir: 图像源数据地址, defaults to [], 默认使用labelme标签源数据地址
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import labelme2voc
+    >>> labelme2voc(
+    ...     lbl_dir=Path("/Users/elfindan/datasets/coco128/jsons"),
+    ...     dst_dir=Path("/Users/elfindan/datasets/coco128/xmls2")
+    ... )
+    ```
+    """
+
+    det_converter = DetLabelmeConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir)
+    det_converter.save_lbl_func = det_converter.to_voc
+    det_converter.convert()
+
+
+def labelme2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path, 
+                 img_dir: List[Path | str] | Path | str = [], names: dict | str = dict(),
+                 use_link: bool = False, split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
+                 year: str = "", class_start_index: Literal[0, 1] = 0) -> None:
+    """labelme格式的标签转换为COCO格式标签
+
+    :param List[Path|str]| Path| str lbl_dir: labelme标签源数据地址
+    :param str | Path dst_dir: COCO标签保存地址
+    :param List[Path|str]| Path| str img_dir: 图像源数据地址, defaults to []
+    :param dict | str names: 索引到类别名称的映射, defaults to dict()
+    :param bool use_link: 是否使用软链接, defaults to False
+    :param str split: 数据集划分, defaults to 'train'
+    :param int img_idx: 图像索引起始值, defaults to 0
+    :param int ann_idx: 标注索引起始值, defaults to 0
+    :param str year: 数据集年份, defaults to ""
+    :param Literal[0, 1] class_start_index: 类别索引起始值, defaults to 0
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import labelme2coco
+    >>> labelme2coco(
+    ...     lbl_dir=Path("datasets/coco128/jsons"),
+    ...     img_dir=Path("datasets/coco128/images"),
+    ...     dst_dir=Path("datasets/coco128/coco3"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+    if isinstance(names, str):
+        names_suffix = names.split(".")[-1].lower()
+        if names_suffix == "txt":
+            names = {i: v for i, v in enumerate(read_txt(names))}
+        elif names_suffix in ["yml", "yaml"]:
+            names = read_yaml(names)['names']
+        else:
+            raise ValueError("names must be a str of txt or yml file.")
+    elif isinstance(names, dict) and not names:
+        raise ValueError("names must be a non-empty dict or a str.")
+
+    assert isinstance(names, dict), "names must be a non-empty dict or a str."
+
+    det_converter = DetLabelmeConverter(
+        lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir, use_link=use_link, split=split, names=names,
+        start_img_idx=img_idx, start_ann_idx=ann_idx, year=year, class_start_index=class_start_index)
+    assert len(det_converter.img_dir) == len(det_converter.lbl_dir), \
+        "The number of image and label directories must be the same."
+    det_converter.save_lbl_func = det_converter.to_coco
+    det_converter.ignore_img = False
+    det_converter.convert()
+    det_converter.coco_gather()
+
+# YOLO数据集转其他数据集
+
+class DetYOLOConverter(DetConverter):
+
+    def __init__(
+            self, src_dir: Path, dst_dir: Path, split: str = 'train',
+            start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        img_dir = [Path(ld) for ld in (src_dir / "images").iterdir() if ld.is_dir() and not ld.stem.startswith(".")]
+        lbl_dir = [src_dir / "labels" / ld.name for ld in img_dir]
+        super().__init__(lbl_dir=lbl_dir, dst_dir=dst_dir, img_dir=img_dir, split=split,
+            start_img_idx=start_img_idx, start_ann_idx=start_ann_idx, year=year,
+            class_start_index=class_start_index, classes=classes, names=names,
+            min_area=min_area, ignore_img=ignore_img, **kwargs)
+        self.suffix = ".txt"
+        self.read_lbl_func = self.from_yolo
+
+    def load_datasets(self, *args, **kwargs):
+        return super().load_datasets(*args, **kwargs)
+
+    def convert(self, *args, **kwargs):
+        return super().convert(*args, **kwargs)
+
+
+def yolo2labelme(src_dir: Path, dst_dir: Path, names: dict) -> None:
+    """YOLO标签转换为labelme标签, 完成COCO128数据集(yolo格式标签)的转换测试
+
+    images内部所有子集都将执行转换, 没有对应的标签也将执行转换.
+
+    :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
+    :param Path dst_dir: 数据集的保存地址
+    :param dict names: 索引到类别名称的映射
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import yolo2labelme
+    >>> yolo2labelme(
+    ...     src_dir=Path("datasets/coco128/"),
+    ...     dst_dir=Path("datasets/coco128/jsons"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         3: "motorcycle",
+    ...         4: "airplane",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+
+    det_converter = DetYOLOConverter(src_dir=Path(src_dir), dst_dir=dst_dir, names=names)
+    det_converter.save_lbl_func = det_converter.to_labelme
+    det_converter.convert(status="images")  # 以图像为基准
+
+
+def yolo2voc(src_dir: Path, dst_dir: Path, names: dict) -> None:
+    """YOLO标签转换为Pascal VOC格式标签, 完成COCO128数据集(yolo格式标签)的转换测试
+
+    images内部所有子集都将执行转换, 没有对应的标签也将执行转换.
+
+    :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
+    :param Path dst_dir: 数据集的保存地址
+    :param dict names: 索引到类别名称的映射
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import yolo2voc
+    >>> yolo2voc(
+    ...     src_dir=Path("datasets/coco128/"),
+    ...     dst_dir=Path("datasets/coco128/xmls"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         3: "motorcycle",
+    ...         4: "airplane",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+    det_converter = DetYOLOConverter(src_dir=Path(src_dir), dst_dir=dst_dir, names=names)
+    det_converter.save_lbl_func = det_converter.to_voc
+    det_converter.convert(status="images")  # 以图像为基准
+
+
+def yolo2coco(src_dir: Path, dst_dir: Path, names: dict, use_link: bool = False,
+              split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
+              year: str = "", class_start_index: Literal[0, 1] = 0) -> None:
+    """YOLO标签转换为COCO格式标签, 完成COCO128数据集(yolo格式标签)的转换测试
+
+    images内部所有子集都将执行转换, 没有对应的标签也将执行转换.
+
+    :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
+    :param Path dst_dir: COCO数据集的保存根目录地址
+    :param dict names: 索引到类别名称的映射
+    :param bool use_link: 图像是否使用软连接, defaults to False
+    :param str split: 数据子集的名称, defaults to 'train'
+    :param int img_idx: 图像id起始索引, defaults to 0
+    :param int ann_idx: 标注id起始索引, defaults to 0
+    :param str year: 数据集年份, defaults to ""
+    :param Literal[0, 1] class_start_index: 类别id起始索引, defaults to 0
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import yolo2coco
+    >>> yolo2coco(
+    ...     src_dir=Path("datasets/coco128/"),
+    ...     dst_dir=Path("datasets/coco128/coco"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         3: "motorcycle",
+    ...         4: "airplane",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+
+    """
+    det_converter = DetYOLOConverter(
+        src_dir=Path(src_dir), dst_dir=dst_dir, names=names, use_link=use_link, split=split,
+        start_img_idx=img_idx, start_ann_idx=ann_idx, year=year, class_start_index=class_start_index)
+    det_converter.save_lbl_func = det_converter.to_coco
+    det_converter.ignore_img = False
+    det_converter.convert(status="images")  # 以图像为基准
+    det_converter.coco_gather()
+
+
+# Pascal VOC数据集转其他数据集
+class DetVocConverter(DetConverter):
+
+    def __init__(
+            self, lbl_dir: List[Path | str] | Path | str, dst_dir: Path,
+            img_dir: List[Path | str] | Path | str = [], split: str = 'train',
+            start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        if isinstance(lbl_dir, (Path, str)):
+            lbl_dir = [lbl_dir]
+        lbl_dir = [Path(p) for p in lbl_dir]
+        if isinstance(img_dir, (Path, str)):
+            img_dir = [img_dir]
+        img_dir = [Path(p) for p in img_dir]
+        if not img_dir:
+            img_dir = lbl_dir.copy()
+        super().__init__(lbl_dir=lbl_dir, dst_dir=dst_dir, img_dir=img_dir, split=split,
+            start_img_idx=start_img_idx, start_ann_idx=start_ann_idx, year=year,
+            class_start_index=class_start_index, classes=classes, names=names,
+            min_area=min_area, ignore_img=ignore_img, **kwargs)
+        self.suffix = ".xml"
+        self.read_lbl_func = self.from_voc
+
+    def load_datasets(self, *args, **kwargs):
+        return super().load_datasets(*args, status="labels", **kwargs)
+
+    def convert(self, *args, **kwargs):
+        return super().convert(*args, **kwargs)
+
+
+def voc2labelme(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
+                img_dir: List[Path | str] | Path | str = []) -> None:
+    """Pascal VOC格式标签转换为labelme格式标签
+
+    :param List[Path|str]| Path| str lbl_dir: 源标签文件目录
+    :param str | Path dst_dir: labelme格式标签保存目录
+    :param List[Path|str]| Path| str img_dir: 源图像文件目录, 默认为空
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import voc2labelme
+    >>> voc2labelme(
+    ...     lbl_dir=Path("/Users/elfindan/datasets/coco128/xmls"),
+    ...     dst_dir=Path("/Users/elfindan/datasets/coco128/jsons3"),
+    ...     img_dir=Path("/Users/elfindan/datasets/coco128/images")
+    ... )
+    ```
+    """
+    
+    det_converter = DetVocConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir)
+    det_converter.save_lbl_func = det_converter.to_labelme
+    det_converter.convert()
+
+
+def voc2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
+             names: dict, img_dir: List[Path | str] | Path | str = []) -> None:
+    """Pascal VOC格式标签转换为YOLO格式标签
+
+    :param List[Path|str]| Path| str lbl_dir: 源标签文件目录
+    :param str | Path dst_dir: YOLO格式标签保存目录
+    :param dict names: 索引到类别名称的映射
+    :param List[Path|str]| Path| str img_dir: 源图像文件目录, defaults to []
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import voc2yolo
+    >>> voc2yolo(
+    ...     lbl_dir=Path("datasets/coco128/xmls"),
+    ...     dst_dir=Path("datasets/coco128/yolo3"),
+    ...     img_dir=Path("datasets/coco128/images"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         3: "motorcycle",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+    det_converter = DetVocConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir),
+                                    names=names, img_dir=img_dir)
+    det_converter.save_lbl_func = det_converter.to_yolo
+    det_converter.convert()
+
+
+def voc2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
+             img_dir: List[Path | str] | Path | str = [], names: dict | str = dict(),
+             use_link: bool = False, split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
+             year: str = "", class_start_index: Literal[0, 1] = 0) -> None:
+    """Pascal VOC格式标签转换为COCO格式标签
+
+    :param List[Path|str]| Path| str lbl_dir: 源标签文件目录
+    :param str | Path dst_dir: COCO格式标签保存目录
+    :param List[Path|str]| Path| str img_dir: 源图像文件目录, 默认为空
+    :param dict | str names: 索引到类别名称的映射, 默认为空
+    :param bool use_link: 图像是否使用软连接, 默认为False
+    :param str split: 数据子集的名称, 默认为'train'
+    :param int img_idx: 图像id起始索引, 默认为0
+    :param int ann_idx: 标注id起始索引, 默认为0
+    :param str year: 数据集年份, 默认为空
+    :param Literal[0, 1] class_start_index: 类别id起始索引, 默认为0
+    
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import voc2coco
+    >>> voc2coco(
+    ...     lbl_dir=Path("datasets/coco128/xmls"),
+    ...     dst_dir=Path("datasets/coco128/coco3"),
+    ...     img_dir=Path("datasets/coco128/images"),
+    ...     names={
+    ...         0: "person",
+    ...         1: "bicycle",
+    ...         2: "car",
+    ...         3: "motorcycle",
+    ...         79: "toothbrush",
+    ...     }
+    ... )
+    ```
+    """
+    if isinstance(names, str):
+        names_suffix = names.split(".")[-1].lower()
+        if names_suffix == "txt":
+            names = {i: v for i, v in enumerate(read_txt(names))}
+        elif names_suffix in ["yml", "yaml"]:
+            names = read_yaml(names)['names']
+        else:
+            raise ValueError("names must be a str of txt or yml file.")
+    elif isinstance(names, dict) and not names:
+        raise ValueError("names must be a non-empty dict or a str.")
+
+    assert isinstance(names, dict), "names must be a non-empty dict or a str."
+    det_converter = DetVocConverter(
+        lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir, use_link=use_link, split=split, names=names,
+        start_img_idx=img_idx, start_ann_idx=ann_idx, year=year, class_start_index=class_start_index)
+    assert len(det_converter.img_dir) == len(det_converter.lbl_dir), \
+        "The number of image and label directories must be the same."
+    det_converter.save_lbl_func = det_converter.to_coco
+    det_converter.ignore_img = False
+    det_converter.convert()
+    det_converter.coco_gather()
 
 
 class ToCOCO(ABC):
@@ -617,10 +1234,13 @@ class ToCOCO(ABC):
             for img_file in self.img_dir.iterdir():
                 if img_file.suffix == suffix or img_file.stem.startswith('.'):
                     continue
+                assert isinstance(self.lbl_dir, Path), "lbl_dir must be a Path object."
                 lbl_file = self.lbl_dir / f"{img_file.stem}{suffix}"
                 self.img_idx += 1
                 res.append(([img_file, lbl_file, self.split, self.img_idx], {}))
         else:
+            assert isinstance(self.img_dir, list), "img_dir must be a list of Path objects."
+            assert isinstance(self.lbl_dir, list), "lbl_dir must be a list of Path objects."
             for i, img_dir in enumerate(self.img_dir):
                 for img_file in img_dir.iterdir():
                     # 排除json文件和系统隐藏文件
@@ -656,7 +1276,7 @@ class ToCOCO(ABC):
         """
         file_labels = None
         for _ in range(3):
-            file_labels = parser_json(lbl_file)
+            file_labels = read_json(lbl_file)
             if file_labels is not None:
                 break
             
@@ -782,7 +1402,7 @@ class COCOToAll(ABC):
 
     def _post_init(self):
         # 加载COCO数据集
-        self.coco_dict = parser_json(self.lbl_file)
+        self.coco_dict = read_json(self.lbl_file)
         if self.coco_dict is None:
             raise ValueError("Invalid COCO format.")
         self.coco_names = {cat['id']: cat['name'] for cat in self.coco_dict['categories']}

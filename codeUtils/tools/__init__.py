@@ -14,6 +14,7 @@ import os
 
 cpu_count = os.cpu_count()
 CPU_KERNEL_NUM = 8 if cpu_count is None else cpu_count
+IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp')
 
 from .fontConfig import font_download, valid_local_font, set_plt, colorstr
 from .cocoTools import segmentation_to_polygons
@@ -32,5 +33,5 @@ __all__ = [
 
 __call__ = [
     font_download, valid_local_font, set_plt, colorstr, segmentation_to_polygons,
-    CacheFile, load_img, FutureBar
+    CacheFile, load_img, FutureBar, CPU_KERNEL_NUM, IMG_EXTENSIONS
 ]

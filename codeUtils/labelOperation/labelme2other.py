@@ -60,12 +60,14 @@ def labelme_show():
     print(show_dict)
 
 
-def labelme_to_yolo(json_file: str, dst_dir: str, classes: dict) -> str:
+def labelme_to_yolo(json_file: Path, dst_dir: str, classes: dict) -> None:
     if json_file.name.startswith('.'):
         return None
 
     # 读取labelme格式的json
     labelme_json = parser_json(json_file)
+    if labelme_json is None:
+        return None
 
     # 标注转换
     labels_set = set()
@@ -140,7 +142,7 @@ def labelme2yolo(src_dir: PosixPath, dst_dir: PosixPath, classes: dict) -> None:
                     l2y_bar.update()
 
 
-def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list = None) -> bool:
+def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list | None = None) -> bool:
     """labelme格式的json文件转为voc格式的xml文件
 
     :param str json_file: labelme格式的json文件路径
@@ -149,13 +151,15 @@ def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list = None) -> boo
     :return str: True / None
     """
     if Path(json_file).suffix != '.json':
-        return None
+        return False
     
     if extra_keys is None:
         extra_keys = []
 
     # 读取labelme格式的json
     labelme_json = parser_json(json_file)
+    if labelme_json is None:
+        return False
     json_path = Path(json_file)
     seg_ins_idx = [i for i, shape in enumerate(labelme_json['shapes']) if shape["shape_type"] == "polygon"]
     have_segmented = int(len(seg_ins_idx) > 0)
@@ -194,7 +198,7 @@ def labelme_to_voc(json_file: str, dst_dir: str, extra_keys: list = None) -> boo
     return True
 
 
-def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, extra_keys: list = None) -> None:
+def labelme2voc(src_dir: PosixPath, dst_dir: PosixPath, extra_keys: list | None = None) -> None:
     """labelme格式的json文件批量转为voc格式的xml文件
 
     :param PosixPath src_dir: labelme格式的json文件路径
@@ -242,7 +246,7 @@ class Labelme2COCO(ToCOCO):
 
 def labelme2coco(
         img_dir: PosixPath, dst_dir: PosixPath, classes: dict | str, 
-        lbl_dir: PosixPath = None, img_idx: int = 0, ann_idx: int = 0, 
+        lbl_dir: PosixPath | None = None, img_idx: int = 0, ann_idx: int = 0, 
         use_link: bool = False, split: str = 'train', year: str = "", 
         class_start_index: int = 0
         ) -> tuple[int]:
@@ -252,4 +256,3 @@ def labelme2coco(
     )
     lbl2coco()
     return lbl2coco.img_idx, lbl2coco.ann_idx
-
