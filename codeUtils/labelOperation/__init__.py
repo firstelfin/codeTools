@@ -7,3 +7,4 @@ from .converter import DetConverter
 from .converter import yolo2labelme, yolo2voc, yolo2coco
 from .converter import labelme2voc, labelme2yolo, labelme2coco
 from .converter import voc2labelme, voc2yolo, voc2coco
+from .converter import coco2yolo, coco2labelme, coco2voc

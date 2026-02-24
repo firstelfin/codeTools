@@ -262,7 +262,10 @@ class DetConverter(ABC):
             "flags": {},
             "imageData": None,
         }
-        save_file_path = save_dir / f"{lbl_file.stem}.json"
+        if lbmd is not None and lbmd.imagePath:
+            save_file_path = save_dir / f"{Path(lbmd.imagePath).stem}.json"
+        else:
+            save_file_path = save_dir / f"{lbl_file.stem}.json"
 
         # 基于LabelmeData对象转换
         if isinstance(lbmd, LabelmeData):
@@ -296,7 +299,10 @@ class DetConverter(ABC):
         """
         
         lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
-        save_file_path = str(save_dir / f"{lbl_file.stem}.txt")
+        if lbmd is not None and lbmd.imagePath:
+            save_file_path = str(save_dir / f"{Path(lbmd.imagePath).stem}.txt")
+        else:
+            save_file_path = str(save_dir / f"{lbl_file.stem}.txt")
         
         # 基于LabelmeData对象转换
         lbl_list = []
@@ -333,7 +339,10 @@ class DetConverter(ABC):
         """
 
         lbmd, lbl_file, img_file, save_dir = self.pre_validate(lbmd, lbl_file, img_file, save_dir)
-        save_file_path = str(save_dir / f"{lbl_file.stem}.xml")
+        if lbmd is not None and lbmd.imagePath:
+            save_file_path = str(save_dir / f"{Path(lbmd.imagePath).stem}.xml")
+        else:
+            save_file_path = str(save_dir / f"{lbl_file.stem}.xml")
         
         # 基于LabelmeData对象转换
         voc_dict = {
@@ -577,14 +586,14 @@ class DetConverter(ABC):
         if coco_dict is None:
             return []
         id_to_name = {img_item['id']: (img_item['file_name'], img_item['height'], img_item['width']) for img_item in coco_dict['images']}
-        categories = {cate_item['id']: cate_item[0] for cate_item in coco_dict['categories']}
+        categories = {cate_item['id']: cate_item['name'] for cate_item in coco_dict['categories']}
         self.names = categories
         self.name2id = {v: k for k, v in categories.items()}
         res = list()
         for img_id, (img_name, img_height, img_width) in id_to_name.items():
             img_labelme_data = LabelmeData(imagePath=str(img_file / Path(img_name).name), imageHeight=img_height, imageWidth=img_width, shapes=[])
             for ann in coco_dict['annotations']:
-                if ann['id'] != img_id:
+                if ann['image_id'] != img_id:
                     continue
                 is_seg = len(ann['segmentation']) > 0
                 if len(ann['segmentation']) > 0:
@@ -597,6 +606,7 @@ class DetConverter(ABC):
                     points=points,
                     shape_type='polygon' if is_seg else 'rectangle'
                 ))
+            res.append(img_labelme_data)
         return res
 
     def coco_gather(self) -> None:
@@ -1166,7 +1176,7 @@ class DetCocoConverter(DetConverter):
 
     def __init__(self, lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str, **kwargs):
         self._lbl_dir = self.get_lbl_files(lbl_dir)
-        self._img_dir = [p.parents[1] / p.stem for p in lbl_dir]
+        self._img_dir = [p.parents[1] / p.stem for p in self._lbl_dir]
         super().__init__(lbl_dir=self._lbl_dir, img_dir=self._img_dir, dst_dir=Path(dst_dir), **kwargs)
         self.suffix = ".json"
         self.read_lbl_func = self.from_coco
@@ -1177,16 +1187,16 @@ class DetCocoConverter(DetConverter):
         :param List[Path|str]| Path| str lbl_dir: coco json文件所在文件夹或coco标注文件
         :return List[Path]: 所有coco json文件路径
         """
-        if isinstance(lbl_dir, (Path, str)):
-            lbl_dir = [Path(lbl_dir)]
-        lbl_dir: List[Path] = [Path(p) for p in lbl_dir]
+        lbl_paths = [Path(lbl_dir)] if isinstance(lbl_dir, (Path, str)) else [Path(p) for p in lbl_dir]
         all_lbl_files = []
-        for p in lbl_dir:
+        for p in lbl_paths:
             if p.is_dir():
                 all_sub_files = list(p.rglob("*.json"))
                 all_lbl_files.extend(all_sub_files)
-            else:
+            elif p.is_file():
                 all_lbl_files.append(p)
+            else:
+                raise ValueError(f"{p} is not a valid path.")
         for p in all_lbl_files:
             assert p.suffix == ".json", f"{p} is not a json file."
             assert p.parent.name == "annotations", f"{p} is not in annotations file."
@@ -1208,13 +1218,68 @@ class DetCocoConverter(DetConverter):
             self.dst_dir.mkdir(exist_ok=True, parents=True)
             super().convert(*args, **kwargs)
             self.dst_dir = self.dst_dir.parent  # 重置根目录
-    
+
 
 def coco2yolo(lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str):
+    """COCO数据集转换为YOLO格式
+
+    :param List[Path|str]| Path| str lbl_dir: coco json文件所在文件夹或coco标注文件
+    :param Path dst_dir: 目标数据集保存根目录
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import coco2yolo
+    >>> coco2yolo(
+    ...     lbl_dir=["/Users/elfindan/datasets/coco128/coco/annotations/train2026.json"],
+    ...     dst_dir=Path("/Users/elfindan/datasets/coco128/yolo4"),
+    ... )
+    ```
+    """
     det_converter = DetCocoConverter(lbl_dir=lbl_dir, dst_dir=dst_dir)
     det_converter.save_lbl_func = det_converter.to_yolo
     det_converter.convert()
-    pass
+
+
+def coco2labelme(lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str):
+    """COCO数据集转换为PasCAL VOC格式
+
+    :param List[Path|str]| Path| str lbl_dir: coco json文件所在文件夹或coco标注文件
+    :param Path dst_dir: 目标数据集保存根目录
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import coco2labelme
+    >>> coco2labelme(
+    ...     lbl_dir=["datasets/coco128/coco/annotations"],
+    ...     dst_dir=Path("datasets/coco128/jsons4"),
+    ... )
+    """
+    det_converter = DetCocoConverter(lbl_dir=lbl_dir, dst_dir=dst_dir)
+    det_converter.save_lbl_func = det_converter.to_labelme
+    det_converter.convert()
+
+
+def coco2voc(lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str):
+    """COCO数据集转换为VOC格式
+
+    :param List[Path|str]| Path| str lbl_dir: coco json文件所在文件夹或coco标注文件
+    :param Path dst_dir: 目标数据集保存根目录
+
+    Example:
+
+    ```python
+    >>> from codeUtils.labelOperation import coco2voc
+    >>> coco2voc(
+    ...     lbl_dir=["datasets/coco128/coco/annotations"],
+    ...     dst_dir=Path("datasets/coco128/xmls4"),
+    ... )
+    """
+    det_converter = DetCocoConverter(lbl_dir=lbl_dir, dst_dir=dst_dir)
+    det_converter.save_lbl_func = det_converter.to_voc
+    det_converter.convert()
+
 
 class ToCOCO(ABC):
     """Convert all format to COCO format.
