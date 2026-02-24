@@ -578,9 +578,11 @@ class DetConverter(ABC):
             return []
         id_to_name = {img_item['id']: (img_item['file_name'], img_item['height'], img_item['width']) for img_item in coco_dict['images']}
         categories = {cate_item['id']: cate_item[0] for cate_item in coco_dict['categories']}
+        self.names = categories
+        self.name2id = {v: k for k, v in categories.items()}
         res = list()
         for img_id, (img_name, img_height, img_width) in id_to_name.items():
-            img_labelme_data = LabelmeData(imagePath=str(img_file / img_name), imageHeight=img_height, imageWidth=img_width, shapes=[])
+            img_labelme_data = LabelmeData(imagePath=str(img_file / Path(img_name).name), imageHeight=img_height, imageWidth=img_width, shapes=[])
             for ann in coco_dict['annotations']:
                 if ann['id'] != img_id:
                     continue
@@ -1154,6 +1156,65 @@ def voc2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     det_converter.convert()
     det_converter.coco_gather()
 
+
+class DetCocoConverter(DetConverter):
+    """Coco数据集转其他格式转换器
+
+    :param List[Path|str]| Path| str lbl_dir: coco标签文件, 支持指定json所在文件夹, 也支持指定json文件
+    :param Path dst_dir: 目标数据集保存根目录
+    """
+
+    def __init__(self, lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str, **kwargs):
+        self._lbl_dir = self.get_lbl_files(lbl_dir)
+        self._img_dir = [p.parents[1] / p.stem for p in lbl_dir]
+        super().__init__(lbl_dir=self._lbl_dir, img_dir=self._img_dir, dst_dir=Path(dst_dir), **kwargs)
+        self.suffix = ".json"
+        self.read_lbl_func = self.from_coco
+    
+    def get_lbl_files(self, lbl_dir: List[Path|str]| Path| str) -> List[Path]:
+        """获取指定的lbl_dir下所有的coco json文件
+
+        :param List[Path|str]| Path| str lbl_dir: coco json文件所在文件夹或coco标注文件
+        :return List[Path]: 所有coco json文件路径
+        """
+        if isinstance(lbl_dir, (Path, str)):
+            lbl_dir = [Path(lbl_dir)]
+        lbl_dir: List[Path] = [Path(p) for p in lbl_dir]
+        all_lbl_files = []
+        for p in lbl_dir:
+            if p.is_dir():
+                all_sub_files = list(p.rglob("*.json"))
+                all_lbl_files.extend(all_sub_files)
+            else:
+                all_lbl_files.append(p)
+        for p in all_lbl_files:
+            assert p.suffix == ".json", f"{p} is not a json file."
+            assert p.parent.name == "annotations", f"{p} is not in annotations file."
+        return all_lbl_files
+    
+    def load_datasets(self, *args, **kwargs):
+        """这里加载数据集以图像文件夹为准, 因为不同的子集一般不会融合到一起, 
+        所以一般同步保留转换后的标签为多个子集
+        """
+        for coco_json_file, coco_img_dir in zip(self.lbl_dir, self.img_dir):
+            yield coco_json_file, coco_img_dir
+    
+    def convert(self, *args, **kwargs):
+        for coco_json_file, coco_img_dir in zip(self._lbl_dir, self._img_dir):
+            self.img_dir = [coco_img_dir]
+            self.lbl_dir = [coco_json_file]
+            split_name = coco_json_file.stem
+            self.dst_dir = self.dst_dir / split_name
+            self.dst_dir.mkdir(exist_ok=True, parents=True)
+            super().convert(*args, **kwargs)
+            self.dst_dir = self.dst_dir.parent  # 重置根目录
+    
+
+def coco2yolo(lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str):
+    det_converter = DetCocoConverter(lbl_dir=lbl_dir, dst_dir=dst_dir)
+    det_converter.save_lbl_func = det_converter.to_yolo
+    det_converter.convert()
+    pass
 
 class ToCOCO(ABC):
     """Convert all format to COCO format.
