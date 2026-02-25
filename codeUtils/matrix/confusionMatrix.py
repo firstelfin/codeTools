@@ -319,7 +319,7 @@ class ConfusionMatrix:
                 )) + 1  # adding a little extra space
                 worksheet_rp.set_column(idx + 1 + start_col, idx + 1 + start_col, max_len)  # set column width
             # 自动调整索引列的列宽
-            index_len = max(df_rp.index.astype(str).map(len).max(), 5)  # 5 is the minimum width
+            index_len = max(df_rp.index.astype(str).map(len).max() * 0.92, 5)  # 5 is the minimum width
             worksheet_rp.set_column(start_col, start_col, index_len)  # set index column width
             
             # 写入统计信息到xlsx文件
@@ -332,6 +332,23 @@ class ConfusionMatrix:
                 merge_end_cell = f"{xl_col_to_name(start_col+rp.shape[1])}{start_row+rp.shape[0]+1}"
                 merge_cell_range = f"{merge_start_cell}:{merge_end_cell}"
                 worksheet_rp.merge_range(merge_cell_range, difficult_statistic, summary_format)
+            
+            # 写入实验记录模式到xlsx文件
+            worksheet_exp = workbook.add_worksheet("exp_mode")
+            # 写入第一行的类别
+            for i, class_name in enumerate(df_rp.index[:-3]):
+                worksheet_exp.merge_range(
+                    f"{xl_col_to_name(2*i)}1:{xl_col_to_name(2*i+1)}1",
+                    class_name,
+                    summary_format
+                )
+                worksheet_exp.write(1, 2*i, Recall, format_content)
+                worksheet_exp.write(1, 2*i + 1, Precision, format_content)
+                worksheet_exp.write(2, 2*i, df_rp["Recall"][class_name], format_content)
+                worksheet_exp.write(2, 2*i + 1, df_rp["Precision"][class_name], format_content)
+                # 计算最优的列宽
+                max_len = max(5, sum(0.9 if '\u4e00' <= c <= '\u9fff' else 0.5 for c in class_name)/2 + 0.2)
+                worksheet_exp.set_column(2*i, 2*i + 1, max_len)
 
 
     def get_normalize_matrix(self):
