@@ -26,6 +26,26 @@ from codeUtils.labelOperation.saveLabel import save_json, save_labelme_label, sa
 from codeUtils.tools import load_img, FutureBar, segmentation_to_polygons, CPU_KERNEL_NUM, IMG_EXTENSIONS
 
 
+def load_names_dict(names: str | dict) -> dict:
+    """读取类别名称文件"""
+
+    if isinstance(names, str):
+        names_suffix = names.split(".")[-1].lower()
+        if names_suffix == "txt":
+            names = {i: v for i, v in enumerate(read_txt(names))}
+        elif names_suffix in ["yml", "yaml"]:
+            names = read_yaml(names)['names']
+            if isinstance(names, list):
+                names = {i: v for i, v in enumerate(names)}
+        else:
+            raise ValueError("names must be a str of txt or yml file.")
+    elif isinstance(names, dict) and not names:
+        return names
+
+    assert isinstance(names, dict), "names must be a non-empty dict or a str."
+    return names
+    
+
 @dataclass(slots=True)
 class ShapeInstance(object):
     """实例数据结构
@@ -748,8 +768,9 @@ class DetLabelmeConverter(DetConverter):
             self, lbl_dir: List[Path | str] | Path | str, dst_dir: Path,
             img_dir: List[Path | str] | Path | str = [], split: str = 'train',
             start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
-            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: str|dict = {},
             min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        names = load_names_dict(names)
         if isinstance(lbl_dir, (Path, str)):
             lbl_dir = [lbl_dir]
         lbl_dir = [Path(p) for p in lbl_dir]
@@ -773,12 +794,12 @@ class DetLabelmeConverter(DetConverter):
 
 
 def labelme2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
-                 names: dict, img_dir: List[Path | str] | Path | str = []) -> None:
+                 names: str|dict, img_dir: List[Path | str] | Path | str = []) -> None:
     """labelme格式的标签转换为yolo格式
 
     :param List[Path|str]| Path| str lbl_dir: labelme标签源数据地址
     :param str | Path dst_dir: yolo标签保存地址
-    :param dict names: 索引到类别名称的映射
+    :param str|dict names: 索引到类别名称的映射
     :param List[Path|str]| Path| str img_dir: 图像源数据地址, 默认为空, 则使用labelme标签源数据地址
 
     Example:
@@ -798,7 +819,7 @@ def labelme2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     ... )
     ```
     """
-
+    assert names, "names must be provided. not empty."
     det_converter = DetLabelmeConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir), names=names, img_dir=img_dir)
     det_converter.save_lbl_func = det_converter.to_yolo
     det_converter.convert()
@@ -862,19 +883,7 @@ def labelme2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     ... )
     ```
     """
-    if isinstance(names, str):
-        names_suffix = names.split(".")[-1].lower()
-        if names_suffix == "txt":
-            names = {i: v for i, v in enumerate(read_txt(names))}
-        elif names_suffix in ["yml", "yaml"]:
-            names = read_yaml(names)['names']
-        else:
-            raise ValueError("names must be a str of txt or yml file.")
-    elif isinstance(names, dict) and not names:
-        raise ValueError("names must be a non-empty dict or a str.")
-
-    assert isinstance(names, dict), "names must be a non-empty dict or a str."
-
+    assert names, "names must be provided. not empty."
     det_converter = DetLabelmeConverter(
         lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir, use_link=use_link, split=split, names=names,
         start_img_idx=img_idx, start_ann_idx=ann_idx, year=year, class_start_index=class_start_index)
@@ -892,10 +901,12 @@ class DetYOLOConverter(DetConverter):
     def __init__(
             self, src_dir: Path, dst_dir: Path, split: str = 'train',
             start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
-            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: str|dict = {},
             min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        assert names, "names must be provided. not empty."
         img_dir = [Path(ld) for ld in (src_dir / "images").iterdir() if ld.is_dir() and not ld.stem.startswith(".")]
         lbl_dir = [src_dir / "labels" / ld.name for ld in img_dir]
+        names = load_names_dict(names)
         super().__init__(lbl_dir=lbl_dir, dst_dir=dst_dir, img_dir=img_dir, split=split,
             start_img_idx=start_img_idx, start_ann_idx=start_ann_idx, year=year,
             class_start_index=class_start_index, classes=classes, names=names,
@@ -910,14 +921,14 @@ class DetYOLOConverter(DetConverter):
         return super().convert(*args, **kwargs)
 
 
-def yolo2labelme(src_dir: Path, dst_dir: Path, names: dict) -> None:
+def yolo2labelme(src_dir: Path, dst_dir: Path, names: str|dict) -> None:
     """YOLO标签转换为labelme标签, 完成COCO128数据集(yolo格式标签)的转换测试
 
     images内部所有子集都将执行转换, 没有对应的标签也将执行转换.
 
     :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
     :param Path dst_dir: 数据集的保存地址
-    :param dict names: 索引到类别名称的映射
+    :param str|dict names: 索引到类别名称的映射
 
     Example:
 
@@ -937,20 +948,19 @@ def yolo2labelme(src_dir: Path, dst_dir: Path, names: dict) -> None:
     ... )
     ```
     """
-
     det_converter = DetYOLOConverter(src_dir=Path(src_dir), dst_dir=dst_dir, names=names)
     det_converter.save_lbl_func = det_converter.to_labelme
     det_converter.convert(status="images")  # 以图像为基准
 
 
-def yolo2voc(src_dir: Path, dst_dir: Path, names: dict) -> None:
+def yolo2voc(src_dir: Path, dst_dir: Path, names: str|dict) -> None:
     """YOLO标签转换为Pascal VOC格式标签, 完成COCO128数据集(yolo格式标签)的转换测试
 
     images内部所有子集都将执行转换, 没有对应的标签也将执行转换.
 
     :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
     :param Path dst_dir: 数据集的保存地址
-    :param dict names: 索引到类别名称的映射
+    :param dict str|names: 索引到类别名称的映射
 
     Example:
 
@@ -975,7 +985,7 @@ def yolo2voc(src_dir: Path, dst_dir: Path, names: dict) -> None:
     det_converter.convert(status="images")  # 以图像为基准
 
 
-def yolo2coco(src_dir: Path, dst_dir: Path, names: dict, use_link: bool = False,
+def yolo2coco(src_dir: Path, dst_dir: Path, names: str|dict, use_link: bool = False,
               split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
               year: str = "", class_start_index: Literal[0, 1] = 0) -> None:
     """YOLO标签转换为COCO格式标签, 完成COCO128数据集(yolo格式标签)的转换测试
@@ -984,7 +994,7 @@ def yolo2coco(src_dir: Path, dst_dir: Path, names: dict, use_link: bool = False,
 
     :param Path src_dir: YOLO数据集的根目录, 内包含images图像文件夹和labels标签文件夹
     :param Path dst_dir: COCO数据集的保存根目录地址
-    :param dict names: 索引到类别名称的映射
+    :param str|dict names: 索引到类别名称的映射
     :param bool use_link: 图像是否使用软连接, defaults to False
     :param str split: 数据子集的名称, defaults to 'train'
     :param int img_idx: 图像id起始索引, defaults to 0
@@ -1027,8 +1037,9 @@ class DetVocConverter(DetConverter):
             self, lbl_dir: List[Path | str] | Path | str, dst_dir: Path,
             img_dir: List[Path | str] | Path | str = [], split: str = 'train',
             start_img_idx: int = 0, start_ann_idx: int = 0, year: str = '',
-            class_start_index: Literal[0, 1] = 0, classes: list = [], names: dict = {},
+            class_start_index: Literal[0, 1] = 0, classes: list = [], names: str|dict = {},
             min_area: float = 1.0, ignore_img: bool = True, **kwargs):
+        names = load_names_dict(names)
         if isinstance(lbl_dir, (Path, str)):
             lbl_dir = [lbl_dir]
         lbl_dir = [Path(p) for p in lbl_dir]
@@ -1077,12 +1088,12 @@ def voc2labelme(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
 
 
 def voc2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
-             names: dict, img_dir: List[Path | str] | Path | str = []) -> None:
+             names: str|dict, img_dir: List[Path | str] | Path | str = []) -> None:
     """Pascal VOC格式标签转换为YOLO格式标签
 
     :param List[Path|str]| Path| str lbl_dir: 源标签文件目录
     :param str | Path dst_dir: YOLO格式标签保存目录
-    :param dict names: 索引到类别名称的映射
+    :param str|dict names: 索引到类别名称的映射
     :param List[Path|str]| Path| str img_dir: 源图像文件目录, defaults to []
 
     Example:
@@ -1103,6 +1114,7 @@ def voc2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     ... )
     ```
     """
+    assert names, "names must be provided. not empty."
     det_converter = DetVocConverter(lbl_dir=lbl_dir, dst_dir=Path(dst_dir),
                                     names=names, img_dir=img_dir)
     det_converter.save_lbl_func = det_converter.to_yolo
@@ -1110,7 +1122,7 @@ def voc2yolo(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
 
 
 def voc2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
-             img_dir: List[Path | str] | Path | str = [], names: dict | str = dict(),
+             img_dir: List[Path | str] | Path | str = [], names: str|dict = dict(),
              use_link: bool = False, split: str = 'train', img_idx: int = 0, ann_idx: int = 0,
              year: str = "", class_start_index: Literal[0, 1] = 0) -> None:
     """Pascal VOC格式标签转换为COCO格式标签
@@ -1118,7 +1130,7 @@ def voc2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     :param List[Path|str]| Path| str lbl_dir: 源标签文件目录
     :param str | Path dst_dir: COCO格式标签保存目录
     :param List[Path|str]| Path| str img_dir: 源图像文件目录, 默认为空
-    :param dict | str names: 索引到类别名称的映射, 默认为空
+    :param str|dict names: 索引到类别名称的映射, 默认为空
     :param bool use_link: 图像是否使用软连接, 默认为False
     :param str split: 数据子集的名称, 默认为'train'
     :param int img_idx: 图像id起始索引, 默认为0
@@ -1144,18 +1156,7 @@ def voc2coco(lbl_dir: List[Path | str] | Path | str, dst_dir: str | Path,
     ... )
     ```
     """
-    if isinstance(names, str):
-        names_suffix = names.split(".")[-1].lower()
-        if names_suffix == "txt":
-            names = {i: v for i, v in enumerate(read_txt(names))}
-        elif names_suffix in ["yml", "yaml"]:
-            names = read_yaml(names)['names']
-        else:
-            raise ValueError("names must be a str of txt or yml file.")
-    elif isinstance(names, dict) and not names:
-        raise ValueError("names must be a non-empty dict or a str.")
-
-    assert isinstance(names, dict), "names must be a non-empty dict or a str."
+    assert names, "names must be provided. not empty."
     det_converter = DetVocConverter(
         lbl_dir=lbl_dir, dst_dir=Path(dst_dir), img_dir=img_dir, use_link=use_link, split=split, names=names,
         start_img_idx=img_idx, start_ann_idx=ann_idx, year=year, class_start_index=class_start_index)
@@ -1255,6 +1256,7 @@ def coco2labelme(lbl_dir: List[Path|str]| Path| str, dst_dir: Path | str):
     ...     lbl_dir=["datasets/coco128/coco/annotations"],
     ...     dst_dir=Path("datasets/coco128/jsons4"),
     ... )
+    ```
     """
     det_converter = DetCocoConverter(lbl_dir=lbl_dir, dst_dir=dst_dir)
     det_converter.save_lbl_func = det_converter.to_labelme
