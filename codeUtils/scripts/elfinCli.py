@@ -4,17 +4,22 @@
 @File    :   labelOperationCli.py
 @Time    :   2024/12/10 15:55:01
 @Author  :   firstElfin 
-@Version :   1.0
+@Version :   1.8
 @Desc    :   标签转换工具的命令行接口
 '''
 
 from codeUtils.__base__ import set_args
-from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc, labelme2coco
+from codeUtils.labelOperation import labelme2voc, labelme2coco, labelme2yolo
+from codeUtils.labelOperation import voc2yolo, voc2labelme, voc2coco
+from codeUtils.labelOperation import yolo2coco, yolo2labelme, yolo2voc
+from codeUtils.labelOperation import coco2labelme, coco2voc, coco2yolo
+
+# from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc, labelme2coco
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
-from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc2coco, voc_gen_classes
+# from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc2coco, voc_gen_classes
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
-from codeUtils.labelOperation.yolo2other import yolo2coco
-from codeUtils.labelOperation.coco2other import coco2labelme, coco2voc
+# from codeUtils.labelOperation.yolo2other import yolo2coco
+# from codeUtils.labelOperation.coco2other import coco2labelme, coco2voc
 from codeUtils.tools.fontConfig import font_download
 
 
@@ -22,17 +27,18 @@ def elfin():
     print("Welcome to elfin's label operation tool!")
     args = set_args()
     if args.mode == "labelme2yolo":
-        src_dir, dst_dir, classes = args.src_dir, args.dst_dir, args.classes
-        labelme2yolo(src_dir, dst_dir, classes)
+        labelme2yolo(args.lbl_dir, args.dst_dir, args.names, args.img_dir)
     elif args.mode == "labelme2voc":
-        labelme2voc(args.src_dir, args.dst_dir, args.extra_keys)
+        labelme2voc(args.lbl_dir, args.dst_dir, args.img_dir)
     elif args.mode == "labelme2coco":
         labelme2coco(
-            img_dir=args.img_dir, dst_dir=args.dst_dir, classes=args.classes, 
+            img_dir=args.img_dir, dst_dir=args.dst_dir, names=args.names, 
             lbl_dir=args.lbl_dir, img_idx=args.img_idx, ann_idx=args.ann_idx, 
             use_link=args.use_link, split=args.split, year=args.year, 
             class_start_index=args.class_start_index
         )
+    elif args.mode == "yolo2labelme":
+        yolo2labelme(args.src_dir, args.dst_dir, args.names)
     elif args.mode == "voc2yolo":
         src_dir, dst_dir, classes, img_valid = args.src_dir, args.dst_dir, args.classes, args.img_valid
         voc2yolo(src_dir, dst_dir, classes, img_valid)
