@@ -24,17 +24,17 @@ twine upload dist/*
 
 ## Cli
 
-更多细节参考[DOCS](docs/cli使用指南.md)
+更多细节参考[DOCS](docs/数据操作说明.md)
 
 ### 标注文件互相转换
 
 - [X] 完成labelme2yolo的开发：使用 `elfin labelme2yolo -h`查看帮助;
 - [X] 完成labelme2coco的开发：使用 `elfin labelme2coco -h`查看帮助;
 - [X] 完成labelme2voc的开发：使用 `elfin labelme2voc -h`查看帮助;
-- [ ] 完成yolo2labelme的开发：使用 `elfin yolo2labelme -h`查看帮助;
+- [X] 完成yolo2labelme的开发：使用 `elfin yolo2labelme -h`查看帮助;
 - [X] 完成yolo2coco的开发：使用 `elfin yolo2coco -h`查看帮助;
-- [ ] 完成yolo2voc的开发：使用 `elfin yolo2voc -h`查看帮助;
-- [ ] 完成coco2yolo的开发：使用 `elfin coco2yolo -h`查看帮助;
+- [X] 完成yolo2voc的开发：使用 `elfin yolo2voc -h`查看帮助;
+- [X] 完成coco2yolo的开发：使用 `elfin coco2yolo -h`查看帮助;
 - [X] 完成coco2labelme的开发：使用 `elfin coco2labelme -h`查看帮助;
 - [X] 完成coco2voc的开发：使用 `elfin coco2voc -h`查看帮助;
 - [X] 完成voc2yolo的开发：使用 `elfin voc2yolo -h`查看帮助;
@@ -47,7 +47,7 @@ twine upload dist/*
 
 ### 配置文件生成
 
-- [X] 完成voc2yoloClasses的开发：使用 `elfin voc2yoloClasses -h`查看帮助;
+- [X] 完成voc2yoloClasses的开发：使用 `elfin genNames -h`查看帮助;
 
 ## 本地快速安装
 

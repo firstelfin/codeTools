@@ -25,14 +25,14 @@ else:
 
 
 def to_coco_set_args(to_coco_config):
-    to_coco_config.add_argument('--dst_dir', '-d', required=True, type=Path, help='coco format save directory.')
-    to_coco_config.add_argument('--names', '-n', required=True, type=str, help='class id mapping file. classes.txt、xxx.yaml')
-    to_coco_config.add_argument('--use_link', '-u', type=bool, default=False, help='use symlink to save images. default: False.')
-    to_coco_config.add_argument('--split', '-s', type=str, default='train', help='split name. default: train.')
-    to_coco_config.add_argument('--year', '-y', type=str, default="", help='dataset year. default: "".')
-    to_coco_config.add_argument('--class_start_index', '-c', type=int, default=0, help='class start index. default: 0.')
-    to_coco_config.add_argument('--img_idx', '-x', type=int, default=0, help='image start index. default: 0.')
-    to_coco_config.add_argument('--ann_idx', '-a', type=int, default=0, help='annotation start index. default: 0.')
+    to_coco_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=Path, help='coco format save directory.')
+    to_coco_config.add_argument('-n', '--names', required=True, metavar='', type=str, help='class id mapping file. classes.txt、xxx.yaml')
+    to_coco_config.add_argument('-u', '--use_link', type=bool, metavar='', default=False, help='use symlink to save images. default: False.')
+    to_coco_config.add_argument('-s', '--split', type=str, metavar='', default='train', help='split name. default: train.')
+    to_coco_config.add_argument('-y', '--year', type=str, metavar='', default="", help='dataset year. default: "".')
+    to_coco_config.add_argument('-c', '--class_start_index', type=int, metavar='', default=0, help='class start index. default: 0.')
+    to_coco_config.add_argument('-x', '--img_idx', type=int, metavar='', default=0, help='image start index. default: 0.')
+    to_coco_config.add_argument('-a', '--ann_idx', type=int, metavar='', default=0, help='annotation start index. default: 0.')
 
 
 def labelme2yolo_set_args(labelme2yolo_parser):
@@ -49,9 +49,9 @@ def labelme2yolo_set_args(labelme2yolo_parser):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=examples)
     labelme2yolo_config.add_argument('lbl_dir', nargs='+', type=Path, help='labelme annotation directory.')
-    labelme2yolo_config.add_argument('--dst_dir', '-d', required=True, type=str, help='yolo format save directory.')
-    labelme2yolo_config.add_argument('--names', '-n', required=True, type=str, help='class id mapping file. classes.txt、xxx.yaml')
-    labelme2yolo_config.add_argument('--img_dir', '-i', nargs='*', type=Path, default=[], help='images directory. default: [].')
+    labelme2yolo_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='yolo format save directory.')
+    labelme2yolo_config.add_argument('-n', '--names', required=True, metavar='', type=str, help='class id mapping file. classes.txt、xxx.yaml')
+    labelme2yolo_config.add_argument('-i', '--img_dir', nargs='*', type=Path, metavar='', default=[], help='images directory. default: [].')
 
 
 def labelme2voc_set_args(labelme2voc_parser):
@@ -69,8 +69,8 @@ def labelme2voc_set_args(labelme2voc_parser):
         epilog=examples
     )
     labelme2voc_config.add_argument('lbl_dir', nargs='+', type=Path, help='labelme annotation directory.')
-    labelme2voc_config.add_argument('--dst_dir', '-d', required=True, type=str, help='voc format save directory.')
-    labelme2voc_config.add_argument('--img_dir', '-i', nargs='*', type=Path, default=[], help='images directory. default: [].')
+    labelme2voc_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='voc format save directory.')
+    labelme2voc_config.add_argument('-i', '--img_dir', nargs='*', type=Path, metavar='', default=[], help='images directory. default: [].')
 
 
 def labelme2coco_set_args(labelme2coco_parser):
@@ -86,7 +86,7 @@ def labelme2coco_set_args(labelme2coco_parser):
         epilog=examples
     )
     labelme2coco_config.add_argument('lbl_dir', nargs='+', type=Path, help='labelme annotation directory.')
-    labelme2coco_config.add_argument('--img_dir', '-i', required=True, nargs='+',
+    labelme2coco_config.add_argument('-i', '--img_dir', required=True, nargs='+', metavar='',
                                 type=Path, help='images directory. Imd_dir and lbl_dir correspond one-to-one.')
     to_coco_set_args(labelme2coco_config)
 
@@ -104,8 +104,8 @@ def yolo2labelme_set_args(yolo2labelme_parser):
         epilog=examples
     )
     labelme2coco_config.add_argument('src_dir', type=Path, help='yolo format directory. subdir should be "images" and "labels".')
-    labelme2coco_config.add_argument('--dst_dir', '-d', required=True, type=Path, help='labelme format save directory.')
-    labelme2coco_config.add_argument('--names', '-n', required=True, type=str, help='class id mapping file. classes.txt、xxx.yaml')
+    labelme2coco_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=Path, help='labelme format save directory.')
+    labelme2coco_config.add_argument('-n', '--names', required=True, metavar='', type=str, help='class id mapping file. classes.txt、xxx.yaml')
 
 
 def yolo2voc_set_args(yolo2voc_parser):
@@ -121,8 +121,8 @@ def yolo2voc_set_args(yolo2voc_parser):
         epilog=examples
     )
     yolo2voc_config.add_argument('src_dir', type=Path, help='yolo format directory. subdir should be "images" and "labels".')
-    yolo2voc_config.add_argument('--dst_dir', '-d', required=True, type=Path, help='voc format save directory.')
-    yolo2voc_config.add_argument('--names', '-n', required=True, type=str, help='class id mapping file. classes.txt、xxx.yaml')
+    yolo2voc_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=Path, help='voc format save directory.')
+    yolo2voc_config.add_argument('-n', '--names', required=True, metavar='', type=str, help='class id mapping file. classes.txt、xxx.yaml')
 
 
 def yolo2coco_set_args(yolo2coco_parser):
@@ -154,8 +154,8 @@ def voc2labelme_set_args(voc2labelme_parser):
         epilog=examples
     )
     voc2labelme_config.add_argument('lbl_dir', nargs='+', type=Path, help='voc annotation directory.')
-    voc2labelme_config.add_argument('--dst_dir', '-d', required=True, type=str, help='labelme format save directory.')
-    voc2labelme_config.add_argument('--img_dir', '-i', nargs='*', type=Path, default=[], help='images directory. default: [].')
+    voc2labelme_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='labelme format save directory.')
+    voc2labelme_config.add_argument('-i', '--img_dir', nargs='*', type=Path, metavar='', default=[], help='images directory. default: [].')
   
 
 def voc2yolo_set_args(voc2yolo_parser):
@@ -173,9 +173,9 @@ def voc2yolo_set_args(voc2yolo_parser):
         epilog=examples
     )
     voc2yolo_config.add_argument('lbl_dir', nargs='+', type=Path, help='voc annotation directory.')
-    voc2yolo_config.add_argument('--dst_dir', '-d', required=True, type=str, help='yolo format save directory.')
-    voc2yolo_config.add_argument('--names', '-n', required=True, type=str, help='class id mapping file. classes.txt、xxx.yaml')
-    voc2yolo_config.add_argument('--img_dir', '-i', nargs='*', type=Path, default=[], help='images directory. default: [].')
+    voc2yolo_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='yolo format save directory.')
+    voc2yolo_config.add_argument('-n', '--names', required=True, metavar='', type=str, help='class id mapping file. classes.txt、xxx.yaml')
+    voc2yolo_config.add_argument('-i', '--img_dir', nargs='*', type=Path, metavar='', default=[], help='images directory. default: [].')
 
 
 def voc2coco_set_args(voc2coco_parser):
@@ -191,25 +191,64 @@ def voc2coco_set_args(voc2coco_parser):
         epilog=examples
     )
     labelme2coco_config.add_argument('lbl_dir', nargs='+', type=Path, help='voc annotation directory.')
-    labelme2coco_config.add_argument('--img_dir', '-i', required=True, nargs='+',
+    labelme2coco_config.add_argument('-i', '--img_dir', required=True, nargs='+', metavar='',
                                 type=Path, help='images directory. Imd_dir and lbl_dir correspond one-to-one.')
     to_coco_set_args(labelme2coco_config)
 
 
-def from_coco_set_args(from_coco_config):
-    from_coco_config.add_argument('img_dir', type=str, help='coco images directory.')
-    from_coco_config.add_argument('lbl_file', type=str, help='coco annotations file.')
-    from_coco_config.add_argument('dst_dir', type=str, help='save directory.')
-
-
 def coco2labelme_set_args(coco2labelme_parser):
-    coco2labelme_config = coco2labelme_parser.add_parser('coco2labelme', help='🔁. coco to labelme format')
-    from_coco_set_args(coco2labelme_config)
+    examples = """
+    Examples:
+    \u2714 %(prog)s path/to/coco_json1 -d path/to/labelme_format
+    \u2714 %(prog)s path/to/coco_json1 path/to/coco_json2 -d path/to/labelme_format
+    \u2714 %(prog)s path/to/json_dir1 -d path/to/labelme_format
+    \u2714 %(prog)s path/to/json_dir1 path/to/json_dir2 -d path/to/labelme_format
+    """.strip()
+    coco2labelme_config = coco2labelme_parser.add_parser(
+        'coco2labelme',
+        help='🔁. coco to labelme format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples
+    )
+    coco2labelme_config.add_argument('lbl_dir', nargs='+', type=Path, help='coco annotation directory.')
+    coco2labelme_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='labelme format save directory.')
+
 
 def coco2voc_set_args(coco2voc_parser):
-    coco2voc_config = coco2voc_parser.add_parser('coco2voc', help='🔁. coco to voc format')
-    from_coco_set_args(coco2voc_config)
-    coco2voc_config.add_argument('--extra_keys', nargs="*", type=list, default=[], help='extra keys to add to voc xml file.')
+    examples = """
+    Examples:
+    \u2714 %(prog)s path/to/coco_json1 -d path/to/voc_format
+    \u2714 %(prog)s path/to/coco_json1 path/to/coco_json2 -d path/to/voc_format
+    \u2714 %(prog)s path/to/json_dir1 -d path/to/voc_format
+    \u2714 %(prog)s path/to/json_dir1 path/to/json_dir2 -d path/to/voc_format
+    """.strip()
+    coco2voc_config = coco2voc_parser.add_parser(
+        'coco2voc',
+        help='🔁. coco to voc format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples
+    )
+    coco2voc_config.add_argument('lbl_dir', nargs='+', type=Path, help='coco annotation directory.')
+    coco2voc_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='voc format save directory.')
+
+
+
+def coco2yolo_set_args(coco2yolo_parser):
+    examples = """
+    Examples:
+    \u2714 %(prog)s path/to/coco_json1 -d path/to/yolo_format
+    \u2714 %(prog)s path/to/coco_json1 path/to/coco_json2 -d path/to/yolo_format
+    \u2714 %(prog)s path/to/json_dir1 -d path/to/yolo_format
+    \u2714 %(prog)s path/to/json_dir1 path/to/json_dir2 -d path/to/yolo_format
+    """.strip()
+    coco2yolo_config = coco2yolo_parser.add_parser(
+        'coco2yolo',
+        help='🔁. coco to yolo format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples
+    )
+    coco2yolo_config.add_argument('lbl_dir', nargs='+', type=Path, help='coco annotation directory.')
+    coco2yolo_config.add_argument('-d', '--dst_dir', required=True, metavar='', type=str, help='yolo format save directory.')
 
 
 def yolo_label_exclude_set_args(yolo_label_exclude_parser):
@@ -220,16 +259,22 @@ def yolo_label_exclude_set_args(yolo_label_exclude_parser):
     yolo_label_exclude_config.add_argument('--cp_img', action='store_true', help='copy image to save directory.')
 
 
-
-
-
-
-def voc_gen_classes_set_args(voc2classes_parser):
-    voc2classes_config = voc2classes_parser.add_parser(
-        'voc2yoloClasses', help='generate classes.txt file from voc annotation',
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    voc2classes_config.add_argument('src_dir', type=str, help='voc annotation directory.')
-    voc2classes_config.add_argument('--dst_file', type=str, default=None, help='classes.txt file path.')
+def statitic_gen_names_set_args(statitic_gen_names_parser):
+    examples = """
+    Examples:
+    \u2714 %(prog)s path/to/labels1 -d save_dir -s .xml
+    \u2714 %(prog)s path/to/labels1 path/to/labels2 -d save_dir -s .json
+    """.strip()
+    statitic_gen_names_config = statitic_gen_names_parser.add_parser(
+        'genNames',
+        help='generate classes.txt file and count the number of objects from label annotation',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=examples
+    )
+    statitic_gen_names_config.add_argument('lbl_dir', type=Path, nargs='+', help='label annotation directory.')
+    statitic_gen_names_config.add_argument('-d', '--dst_dir', type=Path, required=True, metavar='', default=None, help='save_dir path.')
+    statitic_gen_names_config.add_argument('-s', '--suffix', metavar='', required=True, choices=['.json', '.xml'],
+                                           help='label file suffix. options: .json, .xml')
 
 
 def font_download_set_args(font_download_parser):
@@ -262,14 +307,14 @@ def set_args():
     yolo2labelme_set_args(sub_command_parser)
     yolo2voc_set_args(sub_command_parser)
     yolo2coco_set_args(sub_command_parser)
-
     voc2yolo_set_args(sub_command_parser)
     voc2coco_set_args(sub_command_parser)
     voc2labelme_set_args(sub_command_parser)
-    voc_gen_classes_set_args(sub_command_parser)
     coco2labelme_set_args(sub_command_parser)
     coco2voc_set_args(sub_command_parser)
-    
+    coco2yolo_set_args(sub_command_parser)
+    statitic_gen_names_set_args(sub_command_parser)
+
     yolo_label_exclude_set_args(sub_command_parser)
     font_download_set_args(sub_command_parser)
     cut_img_set_args(sub_command_parser)

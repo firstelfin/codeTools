@@ -13,13 +13,9 @@ from codeUtils.labelOperation import labelme2voc, labelme2coco, labelme2yolo
 from codeUtils.labelOperation import voc2yolo, voc2labelme, voc2coco
 from codeUtils.labelOperation import yolo2coco, yolo2labelme, yolo2voc
 from codeUtils.labelOperation import coco2labelme, coco2voc, coco2yolo
-
-# from codeUtils.labelOperation.labelme2other import labelme2yolo, labelme2voc, labelme2coco
+from codeUtils.labelOperation import statitic_gen_names
 from codeUtils.labelOperation.yoloLabelExclude import YoloLabelExclude
-# from codeUtils.labelOperation.voc2other import voc2yolo, voc2labelme, voc2coco, voc_gen_classes
 from codeUtils.labelOperation.cutImgFromLabel import CutImgFromLabel
-# from codeUtils.labelOperation.yolo2other import yolo2coco
-# from codeUtils.labelOperation.coco2other import coco2labelme, coco2voc
 from codeUtils.tools.fontConfig import font_download
 
 
@@ -58,15 +54,16 @@ def elfin():
             use_link=args.use_link, split=args.split, year=args.year, 
             class_start_index=args.class_start_index
         )
-    
-    elif args.mode == "voc2yoloClasses":
-        src_dir, dst_file = args.src_dir, args.dst_file
-        voc_gen_classes(src_dir, dst_file)
-    
     elif args.mode == "coco2labelme":
-        coco2labelme(args.img_dir, args.lbl_file, args.dst_dir)
+        coco2labelme(args.lbl_dir, args.dst_dir)
     elif args.mode == "coco2voc":
-        coco2voc(args.img_dir, args.lbl_file, args.dst_dir, args.extra_keys)
+        coco2voc(args.lbl_dir, args.dst_dir)
+    elif args.mode == "coco2yolo":
+        coco2yolo(args.lbl_dir, args.dst_dir)
+    elif args.mode == "genNames":
+        statitic_gen_names(args.lbl_dir, args.dst_dir, args.suffix)
+    
+    
     elif args.mode == "font":
         if args.download:
             font_download()
