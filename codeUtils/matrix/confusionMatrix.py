@@ -342,8 +342,8 @@ class ConfusionMatrix:
                     class_name,
                     summary_format
                 )
-                worksheet_exp.write(1, 2*i, Recall, format_content)
-                worksheet_exp.write(1, 2*i + 1, Precision, format_content)
+                worksheet_exp.write(1, 2*i, "Recall", format_content)
+                worksheet_exp.write(1, 2*i + 1, "Precision", format_content)
                 worksheet_exp.write(2, 2*i, df_rp["Recall"][class_name], format_content)
                 worksheet_exp.write(2, 2*i + 1, df_rp["Precision"][class_name], format_content)
                 # 计算最优的列宽
