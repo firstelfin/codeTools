@@ -41,7 +41,7 @@ InferRegistry = Registry("InferRegistry")
 StatisticRegistry = Registry("StatisticRegistry")
 
 
-def get_exp_dir(dst_dir: str, project: str = 'inference') -> PosixPath:
+def get_exp_dir(dst_dir: str, project: str = 'inference') -> Path:
     """获取实验结果保存目录, 文件夹不存在则创建
 
     :param dst_dir: 实验根目录
@@ -68,7 +68,7 @@ def get_exp_dir(dst_dir: str, project: str = 'inference') -> PosixPath:
 
 
 def path_list_valid(path_dir):
-    if isinstance(path_dir, (str, PosixPath)):
+    if isinstance(path_dir, (str, Path)):
         datasets = [path_dir]
     else:
         datasets = path_dir
@@ -82,7 +82,7 @@ def identity(x):
 
 def obj_matcher(
         pred_boxes: list[dict], gt_boxes: list[dict], iou_thresh=0.5, ios_thresh=0.5, 
-        use_ios=False, mode="xyxy", classes: list=None
+        use_ios=False, mode="xyxy", classes: list|None=None
     ):
     """yolo格式的预测框和真值框的匹配, 返回匹配结果
 
@@ -223,7 +223,7 @@ class DetectBase(object):
         self.nms_iou = nms_iou
         self.device = torch.device(device)
 
-    def init_model(self, model_path: str = None):
+    def init_model(self, model_path: str | None = None):
         try:
             from ultralytics import YOLO
         except ImportError:
@@ -276,11 +276,13 @@ class DetectBase(object):
         empty_cache = kwargs.get('empty_cache', None)
         if empty_cache is None:
             results = self.model(all_sub_imgs, verbose=False, conf=self.infer_conf, iou=self.nms_iou)
-        elif isinstance(empty_cache, int):
+        elif isinstance(empty_cache, (int, float)):
             results = []
             for sub_img in all_sub_imgs:
                 results.append(self.model(sub_img, verbose=False, conf=self.infer_conf, iou=self.nms_iou)[0])
                 torch_empty_cache(empty_cache)
+        else:
+            raise ValueError("empty_cache参数错误, 请检查")
 
         for i, result in enumerate(results):
             boxes = result.boxes.xyxy.cpu().numpy().tolist()

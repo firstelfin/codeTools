@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 
 GB = 1024**3
 
-def torch_empty_cache(thresh: str=4, defult_use: float = 1.1):
+def torch_empty_cache(thresh: float=4, defult_use: float = 1.1):
     """清除当前非激活显存
     :param thresh: 显存使用阈值, defaults to 4
     :type thresh: str, optional
